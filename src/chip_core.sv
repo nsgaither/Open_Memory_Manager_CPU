@@ -31,7 +31,101 @@ module chip_core #(
 
     inout  wire [NUM_ANALOG_PADS-1:0] analog  // Analog
 );
+    
+    // PicoRV32 memory interface
+    logic        mem_valid;
+    logic        mem_instr;
+    logic        mem_ready;
+    
+    logic [31:0] mem_addr;
+    logic [31:0] mem_wdata;
+    logic [3:0]  mem_wstrb;
+    logic [31:0] mem_rdata;
+    
+    // Lookahead interface (can be left unused)
+    logic        mem_la_read;
+    logic        mem_la_write;
+    logic [31:0] mem_la_addr;
+    logic [31:0] mem_la_wdata;
+    logic [3:0]  mem_la_wstrb;
+    
+    // IRQ interface
+    logic [31:0] irq;
+    logic [31:0] eoi;
+    
+    // Trace/debug (can leave unconnected if unused)
+    logic        trace_valid;
+    logic [35:0] trace_data;
 
+
+    assign mem_ready = 1'b0;       // stall CPU (no memory yet)
+    assign mem_rdata = 32'h00000000;
+
+    assign irq = 32'b0;            // no interrupts
+
+
+
+    picorv32 #(
+        .ENABLE_COUNTERS      (1),
+        .ENABLE_COUNTERS64    (0),
+        .ENABLE_REGS_16_31    (1),
+        .ENABLE_REGS_DUALPORT (1),
+    
+        .LATCHED_MEM_RDATA    (0),
+    
+        .TWO_STAGE_SHIFT      (1),
+        .BARREL_SHIFTER       (0),
+        .TWO_CYCLE_COMPARE    (0),
+        .TWO_CYCLE_ALU        (0),
+    
+        .COMPRESSED_ISA       (0),
+    
+        .CATCH_MISALIGN       (1),
+        .CATCH_ILLINSN        (1),
+    
+        .ENABLE_MUL           (1),
+        .ENABLE_FAST_MUL      (0),
+        .ENABLE_DIV           (1),
+    
+        .ENABLE_IRQ           (0),
+        .ENABLE_IRQ_QREGS     (0),
+    
+        .PROGADDR_RESET       (32'h0000_0000),
+        .PROGADDR_IRQ         (32'h0000_0010),
+        .STACKADDR            (32'h0000_2000)
+    ) pico_rv32_cpu (
+        .clk         (clk),
+        .resetn      (rst_n),
+    
+        // Memory interface
+        .mem_valid   (mem_valid),
+        .mem_instr   (mem_instr),
+        .mem_ready   (mem_ready),
+    
+        .mem_addr    (mem_addr),
+        .mem_wdata   (mem_wdata),
+        .mem_wstrb   (mem_wstrb),
+        .mem_rdata   (mem_rdata),
+    
+        // Lookahead (optional)
+        .mem_la_read   (mem_la_read),
+        .mem_la_write  (mem_la_write),
+        .mem_la_addr   (mem_la_addr),
+        .mem_la_wdata  (mem_la_wdata),
+        .mem_la_wstrb  (mem_la_wstrb),
+    
+        // Interrupts
+        .irq         (irq),
+        .eoi         (eoi),
+    
+        // Trace/debug
+        .trace_valid (trace_valid),
+        .trace_data  (trace_data)
+    );
+
+
+
+    
     // See here for usage: https://gf180mcu-pdk.readthedocs.io/en/latest/IPs/IO/gf180mcu_fd_io/digital.html
     
     // Disable pull-up and pull-down for input
