@@ -103,6 +103,8 @@ def chip_top_runner():
         sources.append(proj_path / "../src/chip_top.sv")
         sources.append(proj_path / "../src/chip_core.sv")
         sources.append(proj_path / "../ip/picorv32/picorv32.v")
+        sources.append(proj_path / "../src/mem_ctrl/mem2048x32.sv")
+        sources.append(proj_path / "../src/mem_ctrl/mem512x32.sv")
 
     sources += [
         # IO pad models

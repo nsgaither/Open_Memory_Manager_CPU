@@ -29,6 +29,8 @@ VERILOG_FILES:
 - dir::../src/chip_top.sv
 - dir::../src/chip_core.sv
 - dir::../ip/picorv32/picorv32.v
+- dir::../src/mem_ctrl/mem512x32.sv
+- dir::../src/mem_ctrl/mem2048x32.sv
 
 # Enable plugin for better SystemVerilog support
 # USE_SLANG: True (May need to re-enable)
