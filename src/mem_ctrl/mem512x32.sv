@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: © 2025 Albert Felix
+// SPDX-FileCopyrightText: © 2026 Nicholas Gaither
 // SPDX-License-Identifier: Apache-2.0
 
 `default_nettype none
@@ -39,12 +39,6 @@ module mem_ctrl_512x32
     end
 
     wire init_busy = (state == S_INIT);
-
-
-
-
-
-
 
 	wire sram_enable_n;
 	wire [3:0] sram_write_en_n;
@@ -130,25 +124,3 @@ module mem_ctrl_512x32
 endmodule
 
 `default_nettype wire
-
-
-
-
-
-	// genvar i;
-
-	// generate 
-	// 	for (i = 0; i < 4; i++) begin
-	// 		gf180mcu_fd_ip_sram__sram512x8m8wm1 sram1 (
-	// 			.CLK(clk_i),
-	// 			.CEN(sram_enable_n), 
-	// 			.GWEN(~sram_write_en_n[i]),
-	// 			.WEN(sram_write_bit_mask_n),
-	// 			.A(sram_addr),
-	// 			.D(data_to_write[(7+8*i):(8*i)]),
-	// 			.Q(data_read[(7+8*i):(8*i)]),
-	// 			.VDD(vdd),
-	// 			.VSS(vss)
-	// 		);
-	// 	end
-	// endgenerate
