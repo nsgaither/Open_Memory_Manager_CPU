@@ -33,8 +33,8 @@ VERILOG_FILES:
 - dir::../src/mem_ctrl/mem2048x32.sv
 
 # Enable plugin for better SystemVerilog support
-# USE_SLANG: True (May need to re-enable)
-# SLANG_ARGUMENTS: ['--keep-hierarchy']
+USE_SLANG: True
+SLANG_ARGUMENTS: ['--keep-hierarchy']
 
 # Slightly smaller file sizes
 PRIMARY_GDSII_STREAMOUT_TOOL: klayout

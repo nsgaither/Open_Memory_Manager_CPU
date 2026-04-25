@@ -17,6 +17,11 @@ module mem_ctrl_2048x32
 
 	output wire [31:0] mem_rdata_o,
 	output wire [0:0]  mem_ready_o
+	
+	`ifdef USE_POWER_PINS
+	    ,inout wire VDD
+	    ,inout wire VSS
+	`endif
 );
 
  
@@ -80,6 +85,10 @@ mem_ctrl_512x32 memblock0
 
 	.mem_rdata_o(mem_rdata_o_0),
 	.mem_ready_o(mem_ready_o_0)
+	`ifdef USE_POWER_PINS
+	    ,.VDD(VDD)
+	    ,.VSS(VSS)
+	`endif
 );
 
 mem_ctrl_512x32 memblock1
@@ -96,6 +105,10 @@ mem_ctrl_512x32 memblock1
 
 	.mem_rdata_o(mem_rdata_o_1),
 	.mem_ready_o(mem_ready_o_1)
+	`ifdef USE_POWER_PINS
+	    ,.VDD(VDD)
+	    ,.VSS(VSS)
+	`endif
 );
 
 mem_ctrl_512x32 memblock2
@@ -112,6 +125,10 @@ mem_ctrl_512x32 memblock2
 
 	.mem_rdata_o(mem_rdata_o_2),
 	.mem_ready_o(mem_ready_o_2)
+	`ifdef USE_POWER_PINS
+	    ,.VDD(VDD)
+	    ,.VSS(VSS)
+	`endif
 );
 
 mem_ctrl_512x32 memblock3
@@ -128,6 +145,10 @@ mem_ctrl_512x32 memblock3
 
 	.mem_rdata_o(mem_rdata_o_3),
 	.mem_ready_o(mem_ready_o_3)
+	`ifdef USE_POWER_PINS
+	    ,.VDD(VDD)
+	    ,.VSS(VSS)
+	`endif
 );
 
 // assign logic to wires 

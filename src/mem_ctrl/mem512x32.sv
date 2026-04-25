@@ -14,6 +14,10 @@ module mem_ctrl_512x32
 	input wire [3:0]   mem_wstrb_i,
 	output wire [31:0] mem_rdata_o,
 	output wire [0:0]  mem_ready_o
+	`ifdef USE_POWER_PINS
+		,inout wire		   VDD
+		,inout wire		   VSS
+	`endif
 );
 
     // -------------------------------------------------------------------------
@@ -85,9 +89,11 @@ module mem_ctrl_512x32
         .WEN  (sram_write_bit_mask_n),
         .A    (sram_addr),
         .D    (data_to_write[7:0]),
-        .Q    (data_read[7:0]),
-        .VDD  (),
-        .VSS  ()
+        .Q    (data_read[7:0])
+		`ifdef USE_POWER_PINS
+		    ,.VDD  (VDD)
+		    ,.VSS  (VSS)
+		`endif
     );
     gf180mcu_fd_ip_sram__sram512x8m8wm1 sram1 (
         .CLK  (clk_i),
@@ -96,9 +102,11 @@ module mem_ctrl_512x32
         .WEN  (sram_write_bit_mask_n),
         .A    (sram_addr),
         .D    (data_to_write[15:8]),
-        .Q    (data_read[15:8]),
-        .VDD  (),
-        .VSS  ()
+        .Q    (data_read[15:8])        
+		`ifdef USE_POWER_PINS
+		    ,.VDD  (VDD)
+		    ,.VSS  (VSS)
+		`endif
     );
     gf180mcu_fd_ip_sram__sram512x8m8wm1 sram2 (
         .CLK  (clk_i),
@@ -107,9 +115,11 @@ module mem_ctrl_512x32
         .WEN  (sram_write_bit_mask_n),
         .A    (sram_addr),
         .D    (data_to_write[23:16]),
-        .Q    (data_read[23:16]),
-        .VDD  (),
-        .VSS  ()
+        .Q    (data_read[23:16])
+		`ifdef USE_POWER_PINS
+		    ,.VDD  (VDD)
+		    ,.VSS  (VSS)
+		`endif
     );
     gf180mcu_fd_ip_sram__sram512x8m8wm1 sram3 (
         .CLK  (clk_i),
@@ -118,9 +128,11 @@ module mem_ctrl_512x32
         .WEN  (sram_write_bit_mask_n),
         .A    (sram_addr),
         .D    (data_to_write[31:24]),
-        .Q    (data_read[31:24]),
-        .VDD  (),
-        .VSS  ()
+        .Q    (data_read[31:24])
+		`ifdef USE_POWER_PINS
+		    ,.VDD  (VDD)
+		    ,.VSS  (VSS)
+		`endif
     );
 
 	assign mem_rdata_o = data_read;

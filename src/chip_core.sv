@@ -76,6 +76,10 @@ module chip_core #(
         .mem_wstrb_i (mem_wstrb),
         .mem_rdata_o (mem_rdata),
         .mem_ready_o (mem_ready)
+		`ifdef USE_POWER_PINS
+		,.VDD(VDD)
+		,.VSS(VSS) 
+		`endif
     );
 
 
