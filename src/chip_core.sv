@@ -49,27 +49,35 @@ module chip_core #(
     logic [31:0] mem_la_wdata;
     logic [3:0]  mem_la_wstrb;
     
-    // IRQ interface
-    logic [31:0] irq;
-    logic [31:0] eoi;
-    
     // Trace/debug (can leave unconnected if unused)
     logic        trace_valid;
     logic [35:0] trace_data;
-
-
-    assign mem_ready = 1'b0;       // stall CPU (no memory yet)
-    assign mem_rdata = 32'h00000000;
-
-    assign irq = 32'b0;            // no interrupts
-
-logic        trap;
 
     // PCPI interface (tied off - not using external coprocessor)
     logic        pcpi_valid;
     logic [31:0] pcpi_insn;
     logic [31:0] pcpi_rs1;
     logic [31:0] pcpi_rs2;
+    logic        pcpi_wr;
+    logic [31:0] pcpi_rd;
+    logic        pcpi_wait;
+    logic        pcpi_ready;
+
+    logic        trap;
+
+    mem_ctrl_2048x32 #(
+    ) mem_ctrl (
+        .clk_i       (clk),
+        .rst_ni      (rst_n),
+        .mem_valid_i (mem_valid),
+        .mem_instr_i (mem_instr),
+        .mem_addr_i  (mem_addr),
+        .mem_wdata_i (mem_wdata),
+        .mem_wstrb_i (mem_wstrb),
+        .mem_rdata_o (mem_rdata),
+        .mem_ready_o (mem_ready)
+    );
+
 
     picorv32 #(
         .ENABLE_COUNTERS      (1),
@@ -140,15 +148,13 @@ logic        trap;
         .pcpi_ready  (1'b0),
 
         // Interrupts
-        .irq         (irq),
-        .eoi         (eoi),
+        .irq         (32'b0),
+        .eoi         (),
 
         // Trace/debug
         .trace_valid (trace_valid),
         .trace_data  (trace_data)
     );
-
-
 
     
     // See here for usage: https://gf180mcu-pdk.readthedocs.io/en/latest/IPs/IO/gf180mcu_fd_io/digital.html
@@ -168,53 +174,7 @@ logic        trap;
     logic _unused;
     assign _unused = &bidir_in;
 
-    logic [NUM_BIDIR_PADS-1:0] count;
-
-    always_ff @(posedge clk) begin
-        if (!rst_n) begin
-            count <= '0;
-        end else begin
-            if (&input_in) begin
-                count <= count + 1;
-            end
-        end
-    end
-
-    logic [7:0] sram_0_out;
-
-    gf180mcu_fd_ip_sram__sram512x8m8wm1 sram_0 (
-        `ifdef USE_POWER_PINS
-        .VDD  (VDD),
-        .VSS  (VSS),
-        `endif
-
-        .CLK  (clk),
-        .CEN  (1'b1),
-        .GWEN (1'b0),
-        .WEN  (8'b0),
-        .A    ('0),
-        .D    ('0),
-        .Q    (sram_0_out)
-    );
-
-    logic [7:0] sram_1_out;
-
-    gf180mcu_fd_ip_sram__sram512x8m8wm1 sram_1 (
-        `ifdef USE_POWER_PINS
-        .VDD  (VDD),
-        .VSS  (VSS),
-        `endif
-
-        .CLK  (clk),
-        .CEN  (1'b1),
-        .GWEN (1'b0),
-        .WEN  (8'b0),
-        .A    ('0),
-        .D    ('0),
-        .Q    (sram_1_out)
-    );
-
-    assign bidir_out = count ^ {24'd0, sram_0_out, sram_1_out};
+    assign bidir_out = {NUM_BIDIR_PADS{1'b0}};
 
 endmodule
 

@@ -82,3 +82,16 @@ render-image: ## Render an image from the final layout (after copy-final)
 	mkdir -p img/
 	PDK_ROOT=${PDK_ROOT} PDK=${PDK} python3 scripts/lay2img.py final/gds/${TOP}.gds img/${TOP}.png --width 2048 --oversampling 4
 .PHONY: copy-final
+
+test-cpu: ## Run picorv32 CPU simulation test
+	@mkdir -p sim
+	cd sim && iverilog -o picorv32_sim.vvp -I../ip/picorv32 picorv32_sim_tb.v ../ip/picorv32/picorv32.v && vvp picorv32_sim.vvp
+.PHONY: test-cpu
+
+test-cpu-view: ## View CPU simulation waveforms
+	gtkwave sim/picorv32_sim.vcd
+.PHONY: test-cpu-view
+
+test-cpu-clean: ## Clean CPU simulation files
+	rm -f sim/*.vvp sim/*.vcd
+.PHONY: test-cpu-clean
