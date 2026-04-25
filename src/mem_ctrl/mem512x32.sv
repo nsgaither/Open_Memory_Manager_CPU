@@ -40,6 +40,7 @@ module mem_ctrl_512x32
 
     wire init_busy = (state == S_INIT);
 
+    logic sram_enable_reg;
 	wire sram_enable_n;
 	wire [3:0] sram_write_en_n;
 	wire [7:0] sram_write_bit_mask_n;
@@ -49,12 +50,16 @@ module mem_ctrl_512x32
 	// wire vdd, vss;
 
 
-    assign sram_enable_n =
-        init_busy ? 1'b0           // always enabled during init (active low)
-                  : !mem_valid_i;  // normal CPU control
+    always_ff @(posedge clk_i) begin
+        if (!rst_ni) begin
+            sram_enable_reg <= 1'b1;
+        end else begin
+            sram_enable_reg <= init_busy ? 1'b0 : !mem_valid_i;
+        end
+    end
+    assign sram_enable_n = sram_enable_reg;
 
     // During init: GWEN=0 (write all bytes). During normal op: CPU controls.
-    // sram_write_en_n feeds GWEN per-byte as ~bit, so all-zero = all writes
     assign sram_write_en_n =
         init_busy ? 4'b0000        // all bytes write-enabled
                   : mem_wstrb_i;
