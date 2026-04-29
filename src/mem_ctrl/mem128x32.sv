@@ -210,19 +210,21 @@ module mem_ctrl_128x32
   // sram_gwen=1 (read mode)  -> WEN=8'hFF (all write disabled)
   assign sram_wen = sram_gwen ? 8'hFF : (mode_q & 8'h0F);
 
-  (* keep *) gf180mcu_fd_ip_sram__sram512x8m8wm1 sram_0 (
-      .CLK(clk_i),
-      .CEN(sram_enable_n), 
-      .GWEN(sram_gwen),
-      .WEN(sram_wen),
-      .A(sram_addr),
-      .D(data_to_write[7:0]),
-      .Q(data_read_from_sram)
-      `ifdef USE_POWER_PINS
-      ,.VDD(VDD)
-      ,.VSS(VSS)
-      `endif
-  );
+   (* keep *) gf180mcu_fd_ip_sram__sram512x8m8wm1 sram_0 (
+       .CLK(clk_i),
+       .CEN(sram_enable_n), 
+       .GWEN(sram_gwen),
+       .WEN(sram_wen),
+       .A(sram_addr),
+       .D(data_to_write[7:0]),
+       .Q(data_read_from_sram)
+       `ifdef USE_POWER_PINS
+       // verilator lint_off ASSIGNIN
+       ,.VDD(VDD)
+       ,.VSS(VSS)
+       // verilator lint_on ASSIGNIN
+       `endif
+   );
   
 endmodule
 

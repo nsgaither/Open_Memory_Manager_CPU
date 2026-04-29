@@ -77,8 +77,10 @@ module chip_core #(
         .mem_rdata_o (mem_rdata),
         .mem_ready_o (mem_ready)
 		`ifdef USE_POWER_PINS
+		// verilator lint_off ASSIGNIN
 		,.VDD(VDD)
-		,.VSS(VSS) 
+		,.VSS(VSS)
+		// verilator lint_on ASSIGNIN
 		`endif
     );
 
