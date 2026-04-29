@@ -54,47 +54,32 @@ async def start_up(dut):
 
 
 @cocotb.test()
-async def test_picorv32_memory_access(dut):
-    """Verify picorv32 can access SRAM through mem_ctrl"""
+async def test_counter(dut):
+    """Run the counter test"""
 
-    logger = logging.getLogger("picorv32_mem_test")
-    logger.info("Starting picorv32 memory access test...")
+    # Create a logger for this testbench
+    logger = logging.getLogger("my_testbench")
 
+    logger.info("Startup sequence...")
+
+    # Start up
     await start_up(dut)
 
-    # Wait for SRAM initialization to complete (128 words * 4 bytes + FSM overhead)
-    # FSM: 512 byte init cycles + some cycles for state machine
-    logger.info("Waiting for SRAM initialization...")
-    await ClockCycles(dut.clk_PAD, 520)
+    logger.info("Running the test...")
 
-    # Now the CPU should be out of reset and trying to fetch instructions
-    # Since SRAM is all zeros, CPU will see illegal instructions and may trap
-    # Check that the CPU is at least running (not stuck in reset)
-    logger.info("Checking CPU is active...")
+    # Wait for some time...
+    await ClockCycles(dut.clk_PAD, 10)
 
-    # Monitor memory interface signals in chip_core
-    mem_valid = dut.i_chip_core.mem_valid
-    mem_ready = dut.i_chip_core.mem_ready
-    mem_addr = dut.i_chip_core.mem_addr
+    # Start the counter by setting all inputs to 1
+    dut.input_PAD.value = -1
 
-    # Wait for at least one memory transaction to complete
-    for _ in range(100):
-        await RisingEdge(dut.clk_PAD)
-        if int(mem_valid.value) == 1 and int(mem_ready.value) == 1:
-            logger.info(f"Memory access detected at addr=0x{int(mem_addr.value):08X}")
-            break
-    else:
-        logger.warning("No memory transaction completed within 100 cycles")
+    # Wait for a number of clock cycles
+    await ClockCycles(dut.clk_PAD, 100)
 
-    # Let CPU run for a while
-    await ClockCycles(dut.clk_PAD, 1000)
-    logger.info("CPU ran for 1000 cycles after init ✓")
+    # Check the end result of the counter
+    assert dut.bidir_PAD.value == 100 - 1
 
-    # Verify the trap signal exists and monitor it
-    trap = dut.i_chip_core.trap
-    logger.info(f"Trap status: {int(trap.value)} (expected if SRAM is all zeros)")
-
-    logger.info("Basic memory access test passed ✓")
+    logger.info("Done!")
 
 
 def chip_top_runner():
