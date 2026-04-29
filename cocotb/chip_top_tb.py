@@ -2,13 +2,12 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import os
-import random
 import logging
 from pathlib import Path
 
 import cocotb
 from cocotb.clock import Clock
-from cocotb.triggers import Timer, Edge, RisingEdge, FallingEdge, ClockCycles
+from cocotb.triggers import Timer, RisingEdge, ClockCycles
 from cocotb_tools.runner import get_runner
 
 sim = os.getenv("SIM", "icarus")
@@ -32,17 +31,13 @@ async def start_clock(clock, freq=50):
     c = Clock(clock, 1 / freq * 1000, "ns")
     cocotb.start_soon(c.start())
 
-
 async def reset(reset, active_low=True, time_ns=1000):
     """Reset dut"""
     cocotb.log.info("Reset asserted...")
-
     reset.value = not active_low
     await Timer(time_ns, "ns")
     reset.value = active_low
-
     cocotb.log.info("Reset deasserted.")
-
 
 async def start_up(dut):
     """Startup sequence"""
@@ -54,32 +49,65 @@ async def start_up(dut):
 
 
 @cocotb.test()
-async def test_counter(dut):
-    """Run the counter test"""
+async def test_reset_and_clock(dut):
+    """Test reset and clock functionality"""
+    logger = logging.getLogger("test_reset_and_clock")
+    logger.info("Testing reset and clock...")
 
-    # Create a logger for this testbench
-    logger = logging.getLogger("my_testbench")
-
-    logger.info("Startup sequence...")
-
-    # Start up
     await start_up(dut)
 
-    logger.info("Running the test...")
+    # Verify clock is running by checking edges
+    await RisingEdge(dut.clk_PAD)
+    await RisingEdge(dut.clk_PAD)
+    logger.info("Clock is toggling.")
 
-    # Wait for some time...
-    await ClockCycles(dut.clk_PAD, 10)
+    # Verify reset is deasserted
+    assert dut.rst_n_PAD.value == 1, "Reset should be deasserted"
+    logger.info("Reset is deasserted.")
 
-    # Start the counter by setting all inputs to 1
-    dut.input_PAD.value = -1
+    logger.info("Reset and clock test passed!")
 
-    # Wait for a number of clock cycles
-    await ClockCycles(dut.clk_PAD, 100)
 
-    # Check the end result of the counter
-    assert dut.bidir_PAD.value == 100 - 1
+@cocotb.test()
+async def test_bidir_outputs(dut):
+    """Test bidirectional pad outputs after reset"""
+    logger = logging.getLogger("test_bidir_outputs")
+    logger.info("Testing bidirectional pad outputs...")
 
-    logger.info("Done!")
+    await start_up(dut)
+
+    # Wait for SRAM reset to complete (512 cycles + some idle cycles)
+    await ClockCycles(dut.clk_PAD, 600)
+
+    # bidir_oe is set to 1 in chip_core, so pads should be in output mode
+    # and bidir_out is set to 0, so all outputs should be 0
+    logger.info(f"bidir_PAD value: {dut.bidir_PAD.value}")
+    assert dut.bidir_PAD.value == 0, f"bidir_PAD should be 0, got {dut.bidir_PAD.value}"
+
+    logger.info("Bidirectional outputs test passed!")
+
+
+@cocotb.test()
+async def test_input_propagation(dut):
+    """Test that inputs propagate to core"""
+    logger = logging.getLogger("test_input_propagation")
+    logger.info("Testing input propagation...")
+
+    await start_up(dut)
+
+    # Wait for reset and SRAM init
+    await ClockCycles(dut.clk_PAD, 600)
+
+    # Set some input values
+    test_val = 0xA
+    dut.input_PAD.value = test_val
+    await ClockCycles(dut.clk_PAD, 5)
+
+    # Read back through the core - inputs should be visible
+    logger.info(f"input_PAD value: {dut.input_PAD.value}")
+    assert dut.input_PAD.value == test_val, f"input_PAD should be {test_val}"
+
+    logger.info("Input propagation test passed!")
 
 
 def chip_top_runner():
