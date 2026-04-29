@@ -180,10 +180,9 @@ module mem_ctrl_128x32
   // WEN: active-low per-byte write enable (SRAM is 8-bit wide, so only WEN[0] matters)
   // sram_gwen=0 (write mode) -> WEN=8'hFE (byte 0 write enabled)
   // sram_gwen=1 (read mode)  -> WEN=8'hFF (all write disabled)
-  logic [7:0] sram_wen;
   assign sram_wen = sram_gwen ? 8'hFF : 8'hFE;
 
-  gf180mcu_fd_ip_sram__sram512x8m8wm1 sram_0 (
+  (* keep *) gf180mcu_fd_ip_sram__sram512x8m8wm1 sram_0 (
       .CLK(clk_i),
       .CEN(sram_enable_n), 
       .GWEN(sram_gwen),
