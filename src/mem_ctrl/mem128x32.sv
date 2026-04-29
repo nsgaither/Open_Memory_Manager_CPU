@@ -14,15 +14,20 @@ module mem_ctrl_128x32
 
   // input interface
   input  wire [0:0]   mem_valid_i,
-  output wire [0:0]   mem_ready_o,
+  input  wire [0:0]   mem_instr_i,
   input  wire [31:0]  mem_addr_i,
   input  wire [31:0]  mem_wdata_i,
   input  wire [3:0]   mem_wstrb_i,   
 
   // output interface     
   output wire [31:0] mem_rdata_o,
-  output wire [0:0]  mem_valid_o,
-  input wire  [0:0]  mem_ready_i
+  output wire [0:0]  mem_ready_o
+
+  `ifdef USE_POWER_PINS
+	    ,inout wire VDD //adding these for librelane
+	    ,inout wire VSS
+  `endif
+  
 );
        
   typedef enum logic [3:0] {
@@ -33,8 +38,7 @@ module mem_ctrl_128x32
     MEM_REQ_1   = 4'b0100,
     MEM_REQ_2   = 4'b0101,
     MEM_REQ_3   = 4'b0110,
-    MEM_REQ_4   = 4'b0111,   
-    MEM_RESP    = 4'b1000
+    MEM_REQ_4   = 4'b0111
   } state_t;
 
   state_t state_q, state_d;
@@ -46,11 +50,12 @@ module mem_ctrl_128x32
   logic [7:0]  data_to_write_q, data_to_write_d;
   logic [7:0]  data_to_write;
 
-	// Sram interface vars
+  // Sram interface vars
   logic [0:0]  sram_enable_n;
   logic [8:0]  sram_addr;
   logic [7:0]  data_read_from_sram;
   logic sram_gwen;
+  logic [7:0] sram_wen; // per-byte write enable (active low)
 
 
   always_ff @(posedge clk_i) begin
@@ -93,16 +98,13 @@ module mem_ctrl_128x32
       end
         
       IDLE: begin
-        // data_read_d = 32'd0;  
-        if (mem_valid_i && mem_ready_o) begin
+        if (mem_valid_i) begin
           state_d = MEM_REQ_0;
-					// latch on to given data
           wdata_d = mem_wdata_i;
           mode_d = mem_wstrb_i;
-					// addr_d = mem_addr_i[8:0];
           addr_d = {mem_addr_i[6:0], 2'b00};  // word addr × 4
           data_to_write_d = mem_wdata_i[7:0];
-          data_read_d     = 32'd0;     
+          data_read_d     = 32'd0;
         end
       end
       
@@ -137,20 +139,16 @@ module mem_ctrl_128x32
       MEM_REQ_4: begin
 				data_read_d = {data_read_from_sram, data_read_q[31:8]};
         // data_read_d = {data_read_q[23:0], data_read_from_sram};
-        state_d = MEM_RESP;
-      end
-
-      MEM_RESP: begin
-        if (mem_valid_o && mem_ready_i) state_d = IDLE;
+        state_d = IDLE;
       end
       
       default: state_d = IDLE;
 	  endcase
   end
 
-  // ready valid logic
-  assign mem_ready_o = (state_q == IDLE);
-  assign mem_valid_o = (state_q == MEM_RESP);
+  // ready valid logic - PicoRV32 expects mem_ready when transaction completes
+  // MEM_REQ_4 is the last read cycle, data is valid after this
+  assign mem_ready_o = (state_q == MEM_REQ_4);
 
   // data outputs
   assign mem_rdata_o = data_read_q;
@@ -179,16 +177,24 @@ module mem_ctrl_128x32
       end
   end
 
-  gf180mcu_fd_ip_sram__sram512x8m8wm1 sram0 (
+  // WEN: active-low per-byte write enable (SRAM is 8-bit wide, so only WEN[0] matters)
+  // sram_gwen=0 (write mode) -> WEN=8'hFE (byte 0 write enabled)
+  // sram_gwen=1 (read mode)  -> WEN=8'hFF (all write disabled)
+  logic [7:0] sram_wen;
+  assign sram_wen = sram_gwen ? 8'hFF : 8'hFE;
+
+  gf180mcu_fd_ip_sram__sram512x8m8wm1 sram_0 (
       .CLK(clk_i),
       .CEN(sram_enable_n), 
       .GWEN(sram_gwen),
-      .WEN(8'b0),
+      .WEN(sram_wen),
       .A(sram_addr),
       .D(data_to_write[7:0]),
-      .Q(data_read_from_sram),
-      .VDD(),
-      .VSS()
+      .Q(data_read_from_sram)
+      `ifdef USE_POWER_PINS
+      ,.VDD(VDD)
+      ,.VSS(VSS)
+      `endif
   );
   
 endmodule

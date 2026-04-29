@@ -65,7 +65,7 @@ module chip_core #(
 
     logic        trap;
 
-    mem_ctrl_2048x32 #(
+    mem_ctrl_128x32 #(
     ) mem_ctrl (
         .clk_i       (clk),
         .rst_ni      (rst_n),

@@ -94,4 +94,16 @@ test-cpu-view: ## View CPU simulation waveforms
 
 test-cpu-clean: ## Clean CPU simulation files
 	rm -f sim/*.vvp sim/*.vcd
+
+test-mem-ctrl: ## Run mem_ctrl_128x32 cocotb testbench
+	cd cocotb; PDK_ROOT=${PDK_ROOT} PDK=${PDK} python3 mem_ctrl_512x32_tb.py
+.PHONY: test-mem-ctrl
+
+test-chip-top: ## Run chip_top cocotb testbench
+	cd cocotb; PDK_ROOT=${PDK_ROOT} PDK=${PDK} SLOT=${SLOT} python3 chip_top_tb.py
+.PHONY: test-chip-top
+
+test-cocotb-clean: ## Clean cocotb build files
+	rm -rf cocotb/sim_build cocotb/__pycache__ cocotb/*.fst cocotb/*.vcd
+.PHONY: test-cocotb-clean
 .PHONY: test-cpu-clean
