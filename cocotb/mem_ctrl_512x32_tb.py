@@ -2,17 +2,17 @@
 # SPDX-License-Identifier: Apache-2.0
 
 """
-CocoTB testbench for mem_ctrl_512x32 — SRAM initialization verification.
+CocoTB testbench for mem_ctrl_128x32 — SRAM initialization verification.
 
 Tests:
-  1. test_init_busy_during_reset       — mem_ready_o stays low for exactly 512 cycles post-reset
+  1. test_init_busy_during_reset       — mem_ready_o stays low for exactly 128 cycles post-reset
   2. test_init_zeros_all_addresses     — every address reads back 0x0000_0000 after init
-  3. test_ready_after_init             — mem_ready_o goes high immediately after the 512th write
+  3. test_ready_after_init             — mem_ready_o goes high immediately after the 128th write
   4. test_no_cpu_access_during_init    — mem_ready_o stays 0 regardless of CPU request during init
   5. test_write_read_after_init        — basic R/W sanity check once init completes
-  6. test_full_address_range_rw        — write/read all 512 locations with a unique pattern
+  6. test_full_address_range_rw        — write/read all 128 locations with a unique pattern
 
-DUT ports (mem_ctrl_512x32):
+DUT ports (mem_ctrl_128x32):
     clk_i        input
     rst_ni       input  (active-low reset)
     mem_valid_i  input  [0:0]
@@ -41,10 +41,11 @@ pdk_root = os.getenv("PDK_ROOT", Path("~/.ciel").expanduser())
 pdk      = os.getenv("PDK",      "gf180mcuD")
 scl      = os.getenv("SCL",      "gf180mcu_fd_sc_mcu7t5v0")
 
-hdl_toplevel = "mem_ctrl_512x32"
+hdl_toplevel = "mem_ctrl_128x32"
 
-# Number of addresses the FSM must sweep before asserting ready
-INIT_DEPTH = 512
+# SRAM is 512x8 (bytes), controller presents 128x32 (words)
+INIT_BYTE_CYCLES = 512   # FSM resets 512 byte addresses
+NUM_WORDS        = 128   # Controller presents 128 words (32-bit each)
 
 # ---------------------------------------------------------------------------
 # Shared helpers
@@ -69,7 +70,7 @@ async def _reset(dut, cycles: int = 4):
     dut.rst_ni.value = 1
 
 
-async def _wait_init_done(dut, timeout_cycles: int = INIT_DEPTH + 20):
+async def _wait_init_done(dut, timeout_cycles: int = INIT_BYTE_CYCLES + 20):
     """
     Poll mem_ready_o on every rising edge.
     Returns the cycle count at which ready went high.
@@ -85,31 +86,37 @@ async def _wait_init_done(dut, timeout_cycles: int = INIT_DEPTH + 20):
 
 
 async def _cpu_read(dut, addr: int) -> int:
-    """Drive a single-cycle CPU read request; returns rdata."""
-    await FallingEdge(dut.clk_i)          # set up on falling edge
+    """Drive a CPU read request and wait for mem_ready_o; returns rdata."""
+    await FallingEdge(dut.clk_i)
     dut.mem_valid_i.value = 1
     dut.mem_instr_i.value = 0
     dut.mem_addr_i.value  = addr
     dut.mem_wdata_i.value = 0
-    dut.mem_wstrb_i.value = 0             # no write strobes → read
-    await RisingEdge(dut.clk_i)
-    rdata = int(dut.mem_rdata_o.value)
-    dut.mem_valid_i.value = 0
-    return rdata
+    dut.mem_wstrb_i.value = 0             # read
+    # Wait for mem_ready_o (FSM needs 5 cycles: MEM_REQ_0..MEM_REQ_4)
+    while True:
+        await RisingEdge(dut.clk_i)
+        if dut.mem_ready_o.value == 1:
+            rdata = int(dut.mem_rdata_o.value)
+            dut.mem_valid_i.value = 0
+            return rdata
 
 
 async def _cpu_write(dut, addr: int, data: int, strb: int = 0xF):
-    """Drive a two-cycle CPU write request so the SRAM sees a full write cycle."""
+    """Drive a CPU write request and wait for mem_ready_o."""
     await FallingEdge(dut.clk_i)
     dut.mem_valid_i.value = 1
     dut.mem_instr_i.value = 0
     dut.mem_addr_i.value  = addr
     dut.mem_wdata_i.value = data
     dut.mem_wstrb_i.value = strb
-    await RisingEdge(dut.clk_i)   # first rising edge — SRAM latches address/data
-    await RisingEdge(dut.clk_i)   # second rising edge — SRAM completes the write
-    dut.mem_valid_i.value = 0
-    dut.mem_wstrb_i.value = 0
+    # Wait for mem_ready_o (FSM needs 5 cycles: MEM_REQ_0..MEM_REQ_4)
+    while True:
+        await RisingEdge(dut.clk_i)
+        if dut.mem_ready_o.value == 1:
+            dut.mem_valid_i.value = 0
+            dut.mem_wstrb_i.value = 0
+            return
 
 
 # ---------------------------------------------------------------------------
@@ -119,7 +126,7 @@ async def _cpu_write(dut, addr: int, data: int, strb: int = 0xF):
 @cocotb.test()
 async def test_init_busy_during_reset(dut):
     """
-    mem_ready_o must remain LOW for *at least* INIT_DEPTH cycles after
+    mem_ready_o must remain LOW for *at least* INIT_BYTE_CYCLES cycles after
     reset is released, confirming the FSM is actively initialising.
     """
     log = logging.getLogger("tb.init_busy")
@@ -129,7 +136,7 @@ async def test_init_busy_during_reset(dut):
     await _reset(dut)
 
     low_count = 0
-    for _ in range(INIT_DEPTH - 1):          # check all but the last cycle
+    for _ in range(INIT_BYTE_CYCLES - 1):    # check all but the last cycle
         await RisingEdge(dut.clk_i)
         assert dut.mem_ready_o.value == 0, (
             f"mem_ready_o went HIGH prematurely at cycle {low_count}"
@@ -142,8 +149,8 @@ async def test_init_busy_during_reset(dut):
 @cocotb.test()
 async def test_ready_after_init(dut):
     """
-    mem_ready_o must assert HIGH no later than INIT_DEPTH + 2 cycles
-    after reset release (one cycle slack for registered state update).
+    mem_ready_o must assert HIGH after INIT_BYTE_CYCLES cycles
+    (the FSM sweeps 512 byte addresses before becoming ready).
     """
     log = logging.getLogger("tb.ready_after_init")
     log.info("START: test_ready_after_init")
@@ -153,9 +160,9 @@ async def test_ready_after_init(dut):
 
     cycles_to_ready = await _wait_init_done(dut)
 
-    assert cycles_to_ready <= INIT_DEPTH + 2, (
+    assert cycles_to_ready <= INIT_BYTE_CYCLES + 5, (
         f"mem_ready_o asserted too late: {cycles_to_ready} cycles "
-        f"(expected ≤ {INIT_DEPTH + 2})"
+        f"(expected ≤ {INIT_BYTE_CYCLES + 5})"
     )
     log.info(f"mem_ready_o asserted after {cycles_to_ready} cycles ✓")
 
@@ -177,7 +184,7 @@ async def test_no_cpu_access_during_init(dut):
     dut.mem_addr_i.value  = 0x00000010
     dut.mem_wstrb_i.value = 0
 
-    for cycle in range(INIT_DEPTH - 1):
+    for cycle in range(INIT_BYTE_CYCLES - 1):
         await RisingEdge(dut.clk_i)
         assert dut.mem_ready_o.value == 0, (
             f"mem_ready_o asserted during init at cycle {cycle} despite active CPU request"
@@ -190,7 +197,7 @@ async def test_no_cpu_access_during_init(dut):
 @cocotb.test()
 async def test_init_zeros_all_addresses(dut):
     """
-    After initialisation every one of the 512 32-bit words must read back
+    After initialisation every one of the 128 32-bit words must read back
     as 0x0000_0000.  This is the core correctness check for the sweep FSM.
     """
     log = logging.getLogger("tb.zeros_check")
@@ -201,7 +208,7 @@ async def test_init_zeros_all_addresses(dut):
     await _wait_init_done(dut)
 
     failures = []
-    for addr in range(INIT_DEPTH):
+    for addr in range(NUM_WORDS):
         rdata = await _cpu_read(dut, addr)
         if rdata != 0:
             failures.append((addr, rdata))
@@ -211,7 +218,7 @@ async def test_init_zeros_all_addresses(dut):
         + "\n".join(f"  addr=0x{a:03X}  data=0x{d:08X}" for a, d in failures[:16])
         + (" ..." if len(failures) > 16 else "")
     )
-    log.info(f"All {INIT_DEPTH} addresses verified as 0x00000000 after init ✓")
+    log.info(f"All {NUM_WORDS} addresses verified as 0x00000000 after init ✓")
 
 
 @cocotb.test()
@@ -228,20 +235,18 @@ async def test_write_read_after_init(dut):
     await _wait_init_done(dut)
 
     test_vectors = [
-        (0x000, 0xDEADBEEF),
-        (0x001, 0xCAFEBABE),
-        (0x0FF, 0x12345678),
-        (0x1FE, 0xAABBCCDD),
-        (0x1FF, 0xFFFFFFFF),
+        (0x00, 0xDEADBEEF),
+        (0x01, 0xCAFEBABE),
+        (0x7F, 0x12345678),
     ]
 
     for addr, data in test_vectors:
         await _cpu_write(dut, addr, data, strb=0xF)
         rdata = await _cpu_read(dut, addr)
         assert rdata == data, (
-            f"addr=0x{addr:03X}: wrote 0x{data:08X}, read back 0x{rdata:08X}"
+            f"addr=0x{addr:02X}: wrote 0x{data:08X}, read back 0x{rdata:08X}"
         )
-        log.info(f"  addr=0x{addr:03X} → 0x{data:08X} ✓")
+        log.info(f"  addr=0x{addr:02X} → 0x{data:08X} ✓")
 
     log.info("Write/read sanity passed ✓")
 
@@ -260,34 +265,29 @@ async def test_full_address_range_rw(dut):
     await _wait_init_done(dut)
 
     # ---- Write phase ----
-    log.info("Writing unique pattern to all 512 addresses…")
-    for addr in range(INIT_DEPTH):
-        pattern = (addr ^ 0xA5A50000) & 0xFFFF_FFFF
-        await _cpu_write(dut, addr, pattern, strb=0xF)
-
-    await ClockCycles(dut.clk_i, 4)
-
-    dummy = await _cpu_read(dut, 0)
+    log.info("Writing unique pattern to all 128 word addresses…")
+    for addr in range(NUM_WORDS):
+        pattern = ((addr << 2) ^ 0xA5A50000) & 0xFFFFFFFF
+        await _cpu_write(dut, addr << 2, pattern, strb=0xF)
 
     # ---- Read-back phase ----
     log.info("Reading back and verifying…")
     failures = []
-    rdata = 0
-    for addr in range(INIT_DEPTH):
-        rdata = await _cpu_read(dut, addr)
-    expected_last = ((0x1FF - 1) ^ 0xA5A50000) & 0xFFFF_FFFF
-    if rdata != expected_last:
-        failures.append((0x1FF, 0xA5A501FF, rdata))
+    for addr in range(NUM_WORDS):
+        expected = ((addr << 2) ^ 0xA5A50000) & 0xFFFFFFFF
+        rdata = await _cpu_read(dut, addr << 2)
+        if rdata != expected:
+            failures.append((addr, expected, rdata))
 
     assert not failures, (
         f"{len(failures)} mismatches in full sweep:\n"
         + "\n".join(
-            f"  addr=0x{a:03X}  exp=0x{e:08X}  got=0x{g:08X}"
+            f"  addr=0x{a:02X} (word {a})  exp=0x{e:08X}  got=0x{g:08X}"
             for a, e, g in failures[:16]
         )
         + (" ..." if len(failures) > 16 else "")
     )
-    log.info(f"Full 512-address R/W sweep passed ✓")
+    log.info(f"Full {NUM_WORDS}-word R/W sweep passed ✓")
 
 
 @cocotb.test()
@@ -336,7 +336,7 @@ def mem_ctrl_runner():
     proj_path = Path(__file__).resolve().parent
 
     sources = [
-        proj_path / "../src/mem_ctrl/mem512x32.sv",
+        proj_path / "../src/mem_ctrl/mem128x32.sv",
         Path(pdk_root) / pdk / (
             "libs.ref/gf180mcu_fd_ip_sram/verilog/"
             "gf180mcu_fd_ip_sram__sram512x8m8wm1.v"

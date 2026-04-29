@@ -65,7 +65,7 @@ module chip_core #(
 
     logic        trap;
 
-    mem_ctrl_2048x32 #(
+    (* keep *) mem_ctrl_128x32 #(
     ) mem_ctrl (
         .clk_i       (clk),
         .rst_ni      (rst_n),
@@ -77,8 +77,10 @@ module chip_core #(
         .mem_rdata_o (mem_rdata),
         .mem_ready_o (mem_ready)
 		`ifdef USE_POWER_PINS
+		// verilator lint_off ASSIGNIN
 		,.VDD(VDD)
-		,.VSS(VSS) 
+		,.VSS(VSS)
+		// verilator lint_on ASSIGNIN
 		`endif
     );
 
