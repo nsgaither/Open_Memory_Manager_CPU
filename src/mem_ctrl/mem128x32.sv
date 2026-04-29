@@ -24,21 +24,25 @@ module mem_ctrl_128x32
   output wire [0:0]  mem_ready_o
 
   `ifdef USE_POWER_PINS
-	    ,inout wire VDD //adding these for librelane
-	    ,inout wire VSS
+	    ,input wire VDD //adding these for librelane
+	    ,input wire VSS
   `endif
   
 );
-       
+
   typedef enum logic [3:0] {
     RESET_SRAMS = 4'b0000, 
     RESET_DATA  = 4'b0001,
     IDLE        = 4'b0010,
     MEM_REQ_0   = 4'b0011,
-    MEM_REQ_1   = 4'b0100,
-    MEM_REQ_2   = 4'b0101,
-    MEM_REQ_3   = 4'b0110,
-    MEM_REQ_4   = 4'b0111
+    MEM_REQ_0_READ = 4'b0100,
+    MEM_REQ_1   = 4'b0101,
+    MEM_REQ_1_READ = 4'b0110,
+    MEM_REQ_2   = 4'b0111,
+    MEM_REQ_2_READ = 4'b1000,
+    MEM_REQ_3   = 4'b1001,
+    MEM_REQ_3_READ = 4'b1010,
+    MEM_REQ_4   = 4'b1011
   } state_t;
 
   state_t state_q, state_d;
@@ -50,32 +54,31 @@ module mem_ctrl_128x32
   logic [7:0]  data_to_write_q, data_to_write_d;
   logic [7:0]  data_to_write;
 
-  // Sram interface vars
+  // SRAM interface vars
   logic [0:0]  sram_enable_n;
   logic [8:0]  sram_addr;
   logic [7:0]  data_read_from_sram;
   logic sram_gwen;
   logic [7:0] sram_wen; // per-byte write enable (active low)
 
-
   always_ff @(posedge clk_i) begin
-  	if (!rst_ni) begin
-  	  state_q <= RESET_SRAMS;
-  	  reset_addr_q <= '0;
-  	  addr_q <= '0;
-  	  wdata_q <= '0;
-  	  mode_q <= '0;
+   	if (!rst_ni) begin
+   	  state_q <= RESET_SRAMS;
+   	  reset_addr_q <= '0;
+   	  addr_q <= '0;
+   	  wdata_q <= '0;
+   	  mode_q <= '0;
 		  data_read_q <= '0;
 			data_to_write_q <= '0;
-  	end else begin
-  	  state_q <= state_d;
-  	  reset_addr_q <= reset_addr_d;
-  	  addr_q <= addr_d;
-  	  wdata_q <= wdata_d;
-  	  mode_q <= mode_d;
+   	end else begin
+   	  state_q <= state_d;
+   	  reset_addr_q <= reset_addr_d;
+   	  addr_q <= addr_d;
+   	  wdata_q <= wdata_d;
+   	  mode_q <= mode_d;
 		  data_read_q <= data_read_d;
-  		data_to_write_q <= data_to_write_d;
-  	end
+   		data_to_write_q <= data_to_write_d;
+   	end
   end
 
   always_comb begin
@@ -89,14 +92,14 @@ module mem_ctrl_128x32
 
 	  case (state_q)
 	    RESET_SRAMS: begin
-	        state_d = RESET_DATA;
+        state_d = RESET_DATA;
 	    end
-
+	    
       RESET_DATA: begin
         if (reset_addr_q == 9'd511) state_d = IDLE;
         reset_addr_d = reset_addr_q + 1;
       end
-        
+         
       IDLE: begin
         if (mem_valid_i) begin
           state_d = MEM_REQ_0;
@@ -108,37 +111,55 @@ module mem_ctrl_128x32
         end
       end
       
+      // Read byte 0 (addr+0)
       MEM_REQ_0: begin
+        state_d = MEM_REQ_0_READ;
+      end
+      
+      MEM_REQ_0_READ: begin
+        // Data from SRAM available now (1 cycle latency)
+        data_read_d = {data_read_from_sram, data_read_q[31:8]};
         addr_d = addr_q + 1;
         data_to_write_d = wdata_q[15:8];
         state_d = MEM_REQ_1;
       end
-
+      
+      // Read byte 1 (addr+1)
       MEM_REQ_1: begin
+        state_d = MEM_REQ_1_READ;
+      end
+      
+      MEM_REQ_1_READ: begin
+        data_read_d = {data_read_from_sram, data_read_q[31:8]};
         addr_d = addr_q + 1;
         data_to_write_d = wdata_q[23:16];
         state_d = MEM_REQ_2;
-				data_read_d = {data_read_from_sram, data_read_q[31:8]};
-        // data_read_d = {data_read_q[23:0], data_read_from_sram};
       end
-
+      
+      // Read byte 2 (addr+2)
       MEM_REQ_2: begin
+        state_d = MEM_REQ_2_READ;
+      end
+      
+      MEM_REQ_2_READ: begin
+        data_read_d = {data_read_from_sram, data_read_q[31:8]};
         addr_d = addr_q + 1;
         data_to_write_d = wdata_q[31:24];
         state_d = MEM_REQ_3;
-				data_read_d = {data_read_from_sram, data_read_q[31:8]};
-        // data_read_d = {data_read_q[23:0], data_read_from_sram};
       end
-
+      
+      // Read byte 3 (addr+3)
       MEM_REQ_3: begin
-				data_read_d = {data_read_from_sram, data_read_q[31:8]};
-        // data_read_d = {data_read_q[23:0], data_read_from_sram};
+        state_d = MEM_REQ_3_READ;
+      end
+      
+      MEM_REQ_3_READ: begin
+        data_read_d = {data_read_from_sram, data_read_q[31:8]};
         state_d = MEM_REQ_4;
       end
-
+      
+      // Done - signal ready and go back to IDLE
       MEM_REQ_4: begin
-				data_read_d = {data_read_from_sram, data_read_q[31:8]};
-        // data_read_d = {data_read_q[23:0], data_read_from_sram};
         state_d = IDLE;
       end
       
@@ -147,7 +168,7 @@ module mem_ctrl_128x32
   end
 
   // ready valid logic - PicoRV32 expects mem_ready when transaction completes
-  // MEM_REQ_4 is the last read cycle, data is valid after this
+  // MEM_REQ_4 is the last state, data is valid after this
   assign mem_ready_o = (state_q == MEM_REQ_4);
 
   // data outputs
@@ -167,11 +188,18 @@ module mem_ctrl_128x32
       end
       else begin
           case (state_q)
-              MEM_REQ_0: begin sram_enable_n = 1'b0; sram_gwen = ~mode_q[0]; end
-              MEM_REQ_1: begin sram_enable_n = 1'b0; sram_gwen = ~mode_q[1]; end
-              MEM_REQ_2: begin sram_enable_n = 1'b0; sram_gwen = ~mode_q[2]; end
-              MEM_REQ_3: begin sram_enable_n = 1'b0; sram_gwen = ~mode_q[3]; end
-              MEM_REQ_4: begin sram_enable_n = 1'b0; sram_gwen = 1'b1;       end
+              MEM_REQ_0, MEM_REQ_1, MEM_REQ_2, MEM_REQ_3: begin
+                  sram_enable_n = 1'b0;
+                  sram_gwen = 1'b0; // Will be overridden by mode
+              end
+              MEM_REQ_0_READ, MEM_REQ_1_READ, MEM_REQ_2_READ, MEM_REQ_3_READ: begin
+                  sram_enable_n = 1'b0;
+                  sram_gwen = 1'b1; // Read mode
+              end
+              MEM_REQ_4: begin
+                  sram_enable_n = 1'b0;
+                  sram_gwen = 1'b1;
+              end
               default: ;
           endcase
       end
@@ -180,7 +208,7 @@ module mem_ctrl_128x32
   // WEN: active-low per-byte write enable (SRAM is 8-bit wide, so only WEN[0] matters)
   // sram_gwen=0 (write mode) -> WEN=8'hFE (byte 0 write enabled)
   // sram_gwen=1 (read mode)  -> WEN=8'hFF (all write disabled)
-  assign sram_wen = sram_gwen ? 8'hFF : 8'hFE;
+  assign sram_wen = sram_gwen ? 8'hFF : (mode_q & 8'h0F);
 
   (* keep *) gf180mcu_fd_ip_sram__sram512x8m8wm1 sram_0 (
       .CLK(clk_i),
