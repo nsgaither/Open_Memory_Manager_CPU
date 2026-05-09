@@ -35,11 +35,21 @@ module chip_core #(
     // Serial Interface
     localparam NUM_TPINS = 9;
     localparam NUM_RPINS = 9;
+
+    // io pad indexes
+    localparam DEBUG_ID = 0;
+    localparam TRAP_ID = 22;
+    localparam REQ_I_ID = 11;
+    localparam REQ_O_ID = 21;
+    localparam SERIAL_I_START_ID = 2;
+    localparam SERIAL_O_START_ID = 12;
+    localparam GPIO_START_ID = 23;
     
-    // Cache TODO: no idea what these are yet
+    // For cache TODO: no idea what these are yet
     localparam NUM_SETS = ;
     localparam WORDS_PER_LINE = ;
 
+    // TODO: add DLL and other clock management if needed
     wire clk_i, rst_ni;
     assign clk_i = clk;
     assign rst_ni = rst_n;
@@ -357,18 +367,49 @@ cache_interface #(
     assign input_pu = '0;
     assign input_pd = '0;
 
-    // Set the bidir as output
-    assign bidir_oe = '1;
-    assign bidir_cs = '0;
-    assign bidir_sl = '0;
-    assign bidir_ie = ~bidir_oe;
-    assign bidir_pu = '0;
-    assign bidir_pd = '0;
-    
-    logic _unused;
-    assign _unused = &bidir_in;
+    // bidirectional pad control
+    always_comb begin : birdir_control
+        // defaults
+        birdir_oe = '0;
+        birdir_cs = '0;
+        birdir_sl = '0;
+        birdir_ie = ~birdir_oe;
+        bidir_pu = '0;
+        bidir_pd = '0;
 
-    assign bidir_out = {NUM_BIDIR_PADS{1'b0}};
+        // IO control
+        birdir_oe[GPIO_START_ID +: 8] = gpio_dir;
+        birdir_oe[DEBUG_ID] = 1'b0;                     // debug pin is input only
+        birdir_oe[TRAP_ID] = 1'b1;                      // trap pin is output only
+        birdir_oe[REQ_I_ID] = 1'b0;                     // req_i is input only
+        birdir_oe[REQ_O_ID] = 1'b1;                     // req_o is output only
+        birdir_oe[SERIAL_I_START_ID +: NUM_RPINS] = '0; // serial_i is input only
+        birdir_oe[SERIAL_O_START_ID +: NUM_TPINS] = '1; // serial_o is output only
+    end
+
+    // bidirectional pad data routing
+    wire [NUM_BIDIR_PADS-1:0] bidir_data_i;
+    always_comb begin : bidir_data
+        // defaults
+        bidir_data_i = bidir_in;
+        bidir_out = {NUM_BIDIR_PADS{1'b0}};
+
+        // trap
+        bidir_out[TRAP_ID] = trap;
+
+        // debug
+        debug = bidir_data_i[DEBUG_ID];
+
+        // serial
+        req_i = bidir_data_i[REQ_I_ID];
+        serial_i = bidir_data_i[SERIAL_I_START_ID +: NUM_RPINS];
+        bidir_out[REQ_O_ID] = req_o;
+        bidir_out[SERIAL_O_START_ID +: NUM_TPINS] = serial_o;
+
+        // GPIO
+        bidir_out[GPIO_START_ID +: 8] = gpio_pins_o;
+        gipio_pins_i = bidir_data_i[GPIO_START_ID +: 8];
+    end
 
 endmodule
 
