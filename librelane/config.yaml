@@ -30,6 +30,9 @@ VERILOG_FILES:
 - dir::../src/chip_core.sv
 - dir::../ip/picorv32/picorv32.v
 - dir::../src/mem_ctrl/mem128x32.sv
+- dir::../src/housekeeping/housekeeping_top.sv
+- dir::../src/housekeeping/boot_fsm.sv
+- dir::../src/housekeeping/spi_engine.sv
 
 # Enable plugin for better SystemVerilog support
 USE_SLANG: True
