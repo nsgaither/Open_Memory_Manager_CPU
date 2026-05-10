@@ -20,7 +20,7 @@ meta:
     #OpenROAD.IRDropReport: null
     #Magic.DRC: null
     #Checker.MagicDRC: null
-    #KLayout.XOR: null
+    KLayout.XOR: null
     #Netgen.LVS: null
     #Checker.LVS: null
 
