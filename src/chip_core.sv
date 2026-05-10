@@ -46,8 +46,8 @@ module chip_core #(
     localparam GPIO_START_ID = 23;
     
     // For cache TODO: no idea what these are yet
-    localparam NUM_SETS = ;
-    localparam WORDS_PER_LINE = ;
+    localparam NUM_SETS = 64;
+    localparam WORDS_PER_LINE = 1;
 
     // TODO: add DLL and other clock management if needed
     wire clk_i, rst_ni;
@@ -243,7 +243,7 @@ wire        snoop_ready;
 cache_controller #(
   .NumSets     (NUM_SETS),
   .WordsPerLine (WORDS_PER_LINE)
-) i_cache_controller (
+) u_cache_controller (
   .clk_i                 (clk_i),
   .rst_ni                (rst_ni),
 
@@ -292,7 +292,7 @@ cache_controller #(
 cache #(
   .NumSets     (NUM_SETS),
   .WordsPerLine (WORDS_PER_LINE)
-) i_cache (
+) u_cache (
   .clk_i     (clk_i),
   .rst_ni    (rst_ni),
 
