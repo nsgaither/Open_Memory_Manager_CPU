@@ -30,6 +30,14 @@ VERILOG_FILES:
 - dir::../src/chip_core.sv
 - dir::../ip/picorv32/picorv32.v
 - dir::../src/mem_ctrl/mem128x32.sv
+- dir::../src/cache_controller/cache_controller.sv
+- dir::../src/cache_controller/cache.sv
+- dir::../src/interposer_interface/cache_interface.sv
+- dir::../src/interposer_interface/lossy_pipe_stage.sv
+- dir::../src/interposer_interface/rserializer.sv
+- dir::../src/interposer_interface/tserializer.sv
+- dir::../src/sp_addr_handling/mmio.sv
+- dir::../src/sp_addr_handling/sp_addr_handler.sv
 
 # Enable plugin for better SystemVerilog support
 USE_SLANG: True
