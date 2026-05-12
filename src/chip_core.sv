@@ -65,17 +65,17 @@ module chip_core #(
 
     logic        trap;
 
-    (* keep *) mem_ctrl_128x32 #(
+    (* keep *) mem128x32 #(
     ) mem_ctrl (
-        .clk_i       (clk),
-        .rst_ni      (rst_n),
-        .mem_valid_i (mem_valid),
-        .mem_instr_i (mem_instr),
-        .mem_addr_i  (mem_addr),
-        .mem_wdata_i (mem_wdata),
-        .mem_wstrb_i (mem_wstrb),
-        .mem_rdata_o (mem_rdata),
-        .mem_ready_o (mem_ready)
+        .clk_i       (),
+        .rst_ni      (),
+        .mem_valid_i (),
+        .mem_instr_i (),
+        .mem_addr_i  (),
+        .mem_wdata_i (),
+        .mem_wstrb_i (),
+        .mem_rdata_o (),
+        .mem_ready_o ()
 		`ifdef USE_POWER_PINS
 		// verilator lint_off ASSIGNIN
 		,.VDD(VDD)
@@ -84,8 +84,24 @@ module chip_core #(
 		`endif
     );
 
-    (* keep *) mem_ctrl_128x8
-
+    (* keep *) mem128x4 #(
+    ) tag (
+        .clk_i       (),
+        .rst_ni      (),
+        .mem_valid_i (),
+        .mem_instr_i (),
+        .mem_addr_i  (),
+        .mem_wdata_i (),
+        .mem_wstrb_i (),
+        .mem_rdata_o (),
+        .mem_ready_o ()
+		`ifdef USE_POWER_PINS
+		// verilator lint_off ASSIGNIN
+		,.VDD(VDD)
+		,.VSS(VSS)
+		// verilator lint_on ASSIGNIN
+		`endif
+    )
 
     picorv32 #(
         .ENABLE_COUNTERS      (1),
