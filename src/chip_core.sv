@@ -84,6 +84,8 @@ module chip_core #(
 		`endif
     );
 
+    (* keep *) mem_ctrl_128x8
+
 
     picorv32 #(
         .ENABLE_COUNTERS      (1),
