@@ -7,7 +7,7 @@
 
 `default_nettype none
 
-module mem_ctrl_128x32
+module mem128x32
 (
   input wire         clk_i,
   input wire         rst_ni,    
@@ -23,6 +23,11 @@ module mem_ctrl_128x32
   output wire [31:0] mem_rdata_o,
   output wire [0:0]  mem_valid_o,
   input wire  [0:0]  mem_ready_i
+
+  `ifdef USE_POWER_PINS
+	    ,input wire VDD //adding these for librelane
+	    ,input wire VSS
+  `endif
 );
        
   typedef enum logic [3:0] {
@@ -179,16 +184,20 @@ module mem_ctrl_128x32
       end
   end
 
-  gf180mcu_fd_ip_sram__sram512x8m8wm1 sram0 (
+  (* keep *) gf180mcu_fd_ip_sram__sram512x8m8wm1 sram_0 (
       .CLK(clk_i),
       .CEN(sram_enable_n), 
       .GWEN(sram_gwen),
       .WEN(8'b0),
       .A(sram_addr),
       .D(data_to_write[7:0]),
-      .Q(data_read_from_sram),
-      .VDD(),
-      .VSS()
+      .Q(data_read_from_sram)
+       `ifdef USE_POWER_PINS
+       // verilator lint_off ASSIGNIN
+       ,.VDD(VDD)
+       ,.VSS(VSS)
+       // verilator lint_on ASSIGNIN
+       `endif
   );
   
 endmodule
