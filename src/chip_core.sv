@@ -76,17 +76,41 @@ module chip_core #(
     wire [35:0] trace_data;
 z
     // PCPI interface (tied off - not using external coprocessor)
-    wire        pcpi_valid;
-    wire [31:0] pcpi_insn;
-    wire [31:0] pcpi_rs1;
-    wire [31:0] pcpi_rs2;
-    wire        pcpi_wr;
-    wire [31:0] pcpi_rd;
-    wire        pcpi_wait;
-    wire        pcpi_ready;
+    logic        pcpi_valid;
+    logic [31:0] pcpi_insn;
+    logic [31:0] pcpi_rs1;
+    logic [31:0] pcpi_rs2;
+    logic        pcpi_wr;
+    logic [31:0] pcpi_rd;
+    logic        pcpi_wait;
+    logic        pcpi_ready;
 
-    wire        trap;
+    logic        trap;
 
+    (* keep *) mem128x32 mem_ctrl (
+        .clk_i       (clk),
+        .rst_ni      (rst_n),
+        .mem_valid_i (),
+        .mem_ready_o (),
+        .mem_addr_i  (),
+        .mem_wdata_i (),
+        .mem_wstrb_i (),
+        .mem_rdata_o (),
+        .mem_valid_o (),
+        .mem_ready_i ()
+    );
+
+    (* keep *) mem128x4 tag (
+        .clk_i       (clk),
+        .rst_ni      (rst_n),
+        .mem_valid_i (),
+        .mem_ready_o (),
+        .mem_addr_i  (),
+        .mem_wdata_i (),
+        .mem_rdata_o (),
+        .mem_valid_o (),
+        .mem_ready_i ()
+    );
 
     picorv32 #(
         .ENABLE_COUNTERS      (1),

@@ -109,7 +109,9 @@ def chip_top_runner():
         sources.append(proj_path / "../src/interposer_interface/tserializer.sv")
         sources.append(proj_path / "../src/sp_addr_handling/mmio.sv")
         sources.append(proj_path / "../src/sp_addr_handling/sp_addr_handler.sv")
-        
+        sources.append(proj_path / "../src/mem_ctrl/mem128x32.sv")
+        sources.append(proj_path / "../src/mem_ctrl/mem128x4.sv")
+
     sources += [
         # IO pad models
         Path(pdk_root) / pdk / "libs.ref/gf180mcu_fd_io/verilog/gf180mcu_fd_io.v",
@@ -117,6 +119,7 @@ def chip_top_runner():
         
         # SRAM macros
         Path(pdk_root) / pdk / "libs.ref/gf180mcu_fd_ip_sram/verilog/gf180mcu_fd_ip_sram__sram512x8m8wm1.v",
+        Path(pdk_root) / pdk / "libs.ref/gf180mcu_fd_ip_sram/verilog/gf180mcu_fd_ip_sram__sram64x8m8wm1.v",
         
         # Custom IP
         proj_path / "../ip/gf180mcu_ws_ip__id/vh/gf180mcu_ws_ip__id.v",
