@@ -167,6 +167,38 @@ module chip_core #(
         .trace_data  (trace_data)
     );
 
+    cache_controller # ( ) cache_controller (
+        // Clock and Reset
+        .clk_i              (clk_i),
+        .rst_ni             (rst_ni),
+        // Processor → Cache
+        .mem_valid          (),
+        .mem_instr          (),
+        .mem_addr           (),
+        .mem_wdata          (),
+        .mem_wstrb          (),
+        .mem_ready          (),
+        .mem_rdata          (),
+        // Cache → Directory
+        .cache_valid_o      (),
+        .cache_addr_o       (),
+        .cache_data_o       (),
+        .cache_cmd_o        (),
+        .cache_ready_i      (),
+        // Directory → Cache
+        .bus_valid_i        (),
+        .bus_data_i         (),
+        .bus_dircmd_i       (),
+        .bus_ready_o        (),
+        // Snoop Request
+        .snoop_valid_i      (),
+        .snoop_addr_i       (),
+        .snoop_dircmd_i     (),
+        .flushed_data_o     (),
+        .flushed_valid_o    (),
+        .snoop_ready_o      ()
+    )
+
     
     // See here for usage: https://gf180mcu-pdk.readthedocs.io/en/latest/IPs/IO/gf180mcu_fd_io/digital.html
     
