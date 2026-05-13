@@ -126,4 +126,4 @@ All RTL sources are in `src/`:
 
 ## License
 
-Apache 2.0
+Apache 2.0 — see [LICENSE](https://github.com/nsgaither/Open_Memory_Manager_CPU/blob/main/LICENSE).
