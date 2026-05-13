@@ -169,8 +169,8 @@ module chip_core #(
 
     cache_controller # ( ) cache_controller (
         // Clock and Reset
-        .clk_i              (clk_i),
-        .rst_ni             (rst_ni),
+        .clk_i              (clk),
+        .rst_ni             (rst_n),
         // Processor → Cache
         .mem_valid          (),
         .mem_instr          (),
@@ -197,7 +197,7 @@ module chip_core #(
         .flushed_data_o     (),
         .flushed_valid_o    (),
         .snoop_ready_o      ()
-    )
+    );
 
     
     // See here for usage: https://gf180mcu-pdk.readthedocs.io/en/latest/IPs/IO/gf180mcu_fd_io/digital.html
