@@ -1,118 +1,129 @@
-# gf180mcu Project Template
+# OMM_CPU
 
-Project template for wafer.space MPW runs using the gf180mcu PDK.
+A RISC-V RV32IM SoC targeting the GlobalFoundries 180nm (GF180MCU) process, designed for the wafer.space MPW shuttle program.
+
+The core is a **PicoRV32** CPU with multiply/divide (RV32IM), backed by a custom memory controller with a 512x8 SRAM, a tag SRAM controller, and a cache controller placeholder for future coherent caching. The design is implemented using the [LibreLane](https://librelane.readthedocs.io/) open-source ASIC flow.
+
+## Architecture
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                      chip_top                               │
+│  ┌─────────────────────────────────────────────────────────┐│
+│  │  Pad Ring (GF180MCU I/O cells)                          ││
+│  └──────────┬──────────────────────────────────────────────┘│
+│  ┌──────────▼──────────────────────────────────────────────┐│
+│  │                    chip_core                            ││
+│  │                                                         ││
+│  │  ┌──────────────┐    ┌────────────────────────────┐     ││
+│  │  │  PicoRV32    │◄──►│  mem128x32 (memory ctrl)   │     ││
+│  │  │  (RV32IM)    │    │  512x8 SRAM → 128x32 words │     ││
+│  │  │  25 MHz      │    │  4-cycle access latency    │     ││
+│  │  └──────────────┘    └────────────────────────────┘     ││
+│  │                          ┌────────────────────────┐     ││
+│  │                          │  mem128x4 (tag SRAM)   │     ││
+│  │                          │  64x8 SRAM → 128x4     │     ││
+│  │                          └────────────────────────┘     ││
+│  │  ┌──────────────────────────────────────────────────┐   ││
+│  │  │  cache_controller                                │   ││
+│  │  └──────────────────────────────────────────────────┘   ││
+│  └─────────────────────────────────────────────────────────┘│
+│                                                             │
+│  ┌──────────────────────┐  ┌──────────────────────┐         │
+│  │  wafer.space chip ID │  │  wafer.space logo    │         │
+│  └──────────────────────┘  └──────────────────────┘         │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### Blocks
+
+| Block | Description |
+|---|---|
+| **PicoRV32** | Size-optimized RISC-V RV32I core with M extension (multiply/divide), native valid/ready memory interface |
+| **mem128x32** | Memory controller multiplexing 32-bit CPU accesses across 4 cycles to a single 512x8 SRAM macro (area-constrained) |
+| **mem128x4** | Tag SRAM controller backed by a 64x8 SRAM, storing 128 4-bit tag/state entries |
+| **cache_controller** | Stub for future coherent cache with directory-based coherence and snoop interface |
+| **chip_id / logo** | Hard macros for wafer.space die marking (QR code and logo GDS) |
 
 ## Prerequisites
 
-We use a custom fork of the [gf180mcuD PDK variant](https://github.com/wafer-space/gf180mcu) until all changes have been upstreamed.
+A custom fork of the [gf180mcuD PDK](https://github.com/wafer-space/gf180mcu) is used:
 
-To clone the latest PDK version, simply run `make clone-pdk`.
+```
+make clone-pdk
+```
 
-In the next step, install LibreLane by following the Nix-based installation instructions: https://librelane.readthedocs.io/en/latest/installation/nix_installation/index.html
+Install LibreLane via Nix: https://librelane.readthedocs.io/en/latest/installation/nix_installation/index.html
 
-## Implement the Design
+## Usage
 
-This repository contains a Nix flake that provides a shell with the [`leo/gf180mcu`](https://github.com/librelane/librelane/tree/leo/gf180mcu) branch of LibreLane.
+Enter the Nix development shell:
 
-Simply run `nix-shell` in the root of this repository.
+```
+nix-shell
+```
 
-> [!NOTE]
-> Since we are working on a branch of LibreLane, OpenROAD needs to be compiled locally. This will be done automatically by Nix, and the binary will be cached locally. 
+Run a singular command in nix-shell:
 
-With this shell enabled, run the implementation:
+```
+nix-shell --run "your-cmd"
+```
+
+### Implement the Design
 
 ```
 make librelane
 ```
 
-## View the Design
-
-After completion, you can view the design using the OpenROAD GUI:
+View the result in OpenROAD or KLayout:
 
 ```
 make librelane-openroad
-```
-
-Or using KLayout:
-
-```
 make librelane-klayout
 ```
 
-## Verification and Simulation
+| Slot  | Dimensions |
+|---|---|
+| `0p5x0p5` | 0.5 mm × 0.5 mm |
 
-We use [cocotb](https://www.cocotb.org/), a Python-based testbench environment, for the verification of the chip.
-The underlying simulator is Icarus Verilog (https://github.com/steveicarus/iverilog).
+### Verification
 
-The testbench is located in `cocotb/chip_top_tb.py`. To run the RTL simulation, run the following command:
+Cocotb-based testbenches using Icarus Verilog:
 
-```
-make sim
-```
+| Command | Description |
+|---|---|
+| `make sim` | RTL simulation of the full chip |
+| `make sim-gl` | Gate-level simulation (after `final/` populated) |
+| `make sim-view` | View waveforms in GTKWave |
+| `make test-cpu` | Standalone PicoRV32 simulation |
+| `make test-mem-ctrl` | Memory controller unit test |
 
-To run the GL (gate-level) simulation, run the following command:
+### Padring-Only Build
 
-```
-make sim-gl
-```
-
-> [!NOTE]
-> You need to have the latest implementation of your design in the `final/` folder. After a run has completed without errors, the final views will be copied to `final/`.
-
-In both cases, a waveform file will be generated under `cocotb/sim_build/chip_top.fst`.
-You can view it using a waveform viewer, for example, [GTKWave](https://gtkwave.github.io/gtkwave/).
-
-```
-make sim-view
-```
-
-You can now update the testbench according to your design.
-
-## Implementing Your Own Design
-
-The source files for this template can be found in the `src/` directory. `chip_top.sv` defines the top-level ports and instantiates `chip_core`, chip ID (QR code) and the wafer.space logo. To allow for the default bonding setup, do not change the number of pads in order to keep the original bondpad positions. To be compatible with the default breakout PCB, do not change any of the power or ground pads. However, you can change the type of the signal pads, e.g. to bidirectional, input-only or e.g. analog pads. The template provides the `NUM_INPUT` and `NUM_BIDIR` parameters for this purpose.
-
-The actual pad positions are defined in the LibreLane configuration file under `librelane/config.yaml`. The variables `PAD_SOUTH`/`PAD_EAST`/`PAD_NORTH`/`PAD_WEST` determine the respective pad placement. The LibreLane configuration also allows you to customize the flow (enable or disable steps), specify the source files, set various variables for the steps, and instantiate macros. For more information about the configuration, please refer to the LibreLane documentation: https://librelane.readthedocs.io/en/latest/
-
-To implement your own design, simply edit `chip_core.sv`. The `chip_core` module receives the clock and reset, as well as the signals from the pads defined in `chip_top`. As an example, a 42-bit wide counter is implemented.
-
-> [!NOTE]
-> For more comprehensive SystemVerilog support, enable the `USE_SLANG` variable in the LibreLane configuration.
-
-## Choosing a Different Slot Size
-
-The template supports the following slot sizes: `1x1`, `0p5x1`, `1x0p5`, `0p5x0p5`.
-By default, the design is implemented using the `1x1` slot definition.
-
-To select a different slot size, simply set the `SLOT` environment variable.
-This can be done when invoking a make target:
-
-```
-SLOT=0p5x0p5 make librelane
-```
-
-Alternatively, you can export the slot size:
-
-```
-export SLOT=0p5x0p5
-```
-
-You can change the slot that is selected by default in the Makefile by editing the value of `DEFAULT_SLOT`.
-
-## Building a Standalone Padring for Analog Design
-
-To build just the padring without any standard cell rows, digital routing or filler cells, run the following command:
+For analog designs that need just the padring without standard cells:
 
 ```
 make librelane-padring
 ```
 
-It is also possible to build the padring for other slot sizes:
+## Simulation Tests
 
-```
-SLOT=0p5x0p5 make librelane-padring
-```
+- **chip_top_tb.py** — Full-chip tests: reset/clock, pad I/O, memory controller FSM, CPU instruction fetch, trap on illegal instruction, SRAM interface timing, GPIO, system stress
+- **mem_ctrl_512x32_tb.py** — Memory controller unit tests: init sequence, address range sweep, byte strobes
+- **mem128x32_tb.py** — Memory controller timing and byte-level write tests
+- **cache_sram_test.py** — 10,000 random transactions against a Python golden model
 
-## Precheck
+## Source Files
 
-To check whether your design is suitable for manufacturing, run the [gf180mcu-precheck](https://github.com/wafer-space/gf180mcu-precheck) with your layout.
+All RTL sources are in `src/`:
+
+- `chip_top.sv` — Top-level chip with pad ring instantiations
+- `chip_core.sv` — Core design instantiating CPU, memory controllers, and cache controller
+- `cache_controller/cache_controller.sv` — Coherent cache placeholder
+- `mem_ctrl/mem128x32.sv` — Main memory controller (512x8 SRAM)
+- `mem_ctrl/mem128x4.sv` — Tag SRAM controller (64x8 SRAM)
+- `slot_defines.svh` — Pad counts per slot size
+
+## License
+
+Apache 2.0

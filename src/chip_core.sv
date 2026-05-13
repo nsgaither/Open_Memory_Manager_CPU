@@ -171,6 +171,7 @@ module chip_core #(
         // Clock and Reset
         .clk_i              (clk),
         .rst_ni             (rst_n),
+
         // Processor → Cache
         .mem_valid          (),
         .mem_instr          (),
@@ -179,17 +180,20 @@ module chip_core #(
         .mem_wstrb          (),
         .mem_ready          (),
         .mem_rdata          (),
+
         // Cache → Directory
         .cache_valid_o      (),
         .cache_addr_o       (),
         .cache_data_o       (),
         .cache_cmd_o        (),
         .cache_ready_i      (),
+
         // Directory → Cache
         .bus_valid_i        (),
         .bus_data_i         (),
         .bus_dircmd_i       (),
         .bus_ready_o        (),
+        
         // Snoop Request
         .snoop_valid_i      (),
         .snoop_addr_i       (),
