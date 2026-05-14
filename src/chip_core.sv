@@ -87,31 +87,6 @@ z
 
     logic        trap;
 
-    (* keep *) mem128x32 mem_ctrl (
-        .clk_i       (clk),
-        .rst_ni      (rst_n),
-        .mem_valid_i (),
-        .mem_ready_o (),
-        .mem_addr_i  (),
-        .mem_wdata_i (),
-        .mem_wstrb_i (),
-        .mem_rdata_o (),
-        .mem_valid_o (),
-        .mem_ready_i ()
-    );
-
-    (* keep *) mem128x4 tag (
-        .clk_i       (clk),
-        .rst_ni      (rst_n),
-        .mem_valid_i (),
-        .mem_ready_o (),
-        .mem_addr_i  (),
-        .mem_wdata_i (),
-        .mem_rdata_o (),
-        .mem_valid_o (),
-        .mem_ready_i ()
-    );
-
     picorv32 #(
         .ENABLE_COUNTERS      (1),
         .ENABLE_COUNTERS64    (0),
@@ -149,7 +124,7 @@ z
         .STACKADDR            (32'h0000_2000)
     ) pico_rv32_cpu (
         .clk         (clk_i),
-        .resetn      (rst_ni),
+        .resetn      (rst_n),
 
         .trap        (trap),
 
@@ -211,7 +186,7 @@ z
 
     sp_addr_handler u_sp_addr_handler (
     .clk_i           (clk_i),
-    .rst_ni          (rst_ni),
+    .rst_ni          (rst_n),
 
     // Interface from CPU (native picorv32)
     .mem_valid       (mem_valid),
@@ -269,7 +244,7 @@ cache_controller #(
   .WordsPerLine (WORDS_PER_LINE)
 ) u_cache_controller (
   .clk_i                 (clk_i),
-  .rst_ni                (rst_ni),
+  .rst_ni                (rst_n),
 
   .mem_valid_i           (pass_mem_valid),
   .mem_ready_o           (pass_mem_ready),
@@ -313,25 +288,26 @@ cache_controller #(
 
 // Cache
 // Cache controller -> this
-cache #(
-  .NumSets     (NUM_SETS),
-  .WordsPerLine (WORDS_PER_LINE)
-) u_cache (
-  .clk_i     (clk_i),
-  .rst_ni    (rst_ni),
+cache_mem #() 
+	u_cache (
+  .clk_i      (clk_i),
+  .rst_ni     (rst_n),
 
-  .rd_en_i   (),
-  .rd_set_i  (),
-  .rd_word_i (),
-  .rd_data_o (),
+  // input interface
+  .valid_i    (),
+  .ready_o    (),
+  .addr_i     (),
+  .wdata_i    (),
+  .wstrb_i    (),
+  .wstate_i   (),
+  .wtag_i     (),
 
-  .wr_en_i   (),
-  .wr_set_i  (),
-  .wr_word_i (),
-  .wr_data_i (),
-  .wr_strb_i (),
-
-  .ready_o   ()
+  // output interface
+  .rdata_o    (),
+  .rtag_o     (),
+  .rstate_o   (),
+  .valid_o    (),
+  .ready_i    ()
 );
 
 // cache_interposer_interface
@@ -348,7 +324,7 @@ cache_interface #(
     .NUM_RPINS (NUM_RPINS)
 ) u_cache_interface (
     .clk_i          (clk_i),
-    .rst_ni         (rst_ni),
+    .rst_ni         (rst_n),
 
     // UPSTREAM --------------------------------------
     // Cache Send Ports
