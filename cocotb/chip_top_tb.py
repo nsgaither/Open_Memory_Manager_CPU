@@ -103,14 +103,17 @@ def chip_top_runner():
         sources.append(proj_path / "../src/chip_top.sv")
         sources.append(proj_path / "../src/chip_core.sv")
         sources.append(proj_path / "../ip/picorv32/picorv32.v")
+        sources.append(proj_path / "../src/mem_ctrl/cache_mem.sv")
+        sources.append(proj_path / "../src/mem_ctrl/mem128x32.sv")
+        sources.append(proj_path / "../src/mem_ctrl/mem128x4.sv")
+        sources.append(proj_path / "../src/cache_controller/cache_controller.sv")
+        sources.append(proj_path / "../src/cache_controller/cache.sv")
         sources.append(proj_path / "../src/interposer_interface/cache_interface.sv")
         sources.append(proj_path / "../src/interposer_interface/lossy_pipe_stage.sv")
         sources.append(proj_path / "../src/interposer_interface/rserializer.sv")
         sources.append(proj_path / "../src/interposer_interface/tserializer.sv")
         sources.append(proj_path / "../src/sp_addr_handling/mmio.sv")
         sources.append(proj_path / "../src/sp_addr_handling/sp_addr_handler.sv")
-        sources.append(proj_path / "../src/mem_ctrl/mem128x32.sv")
-        sources.append(proj_path / "../src/mem_ctrl/mem128x4.sv")
 
     sources += [
         # IO pad models

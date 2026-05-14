@@ -197,7 +197,7 @@ add_pdn_connect \
 
 define_pdn_grid \
     -macro \
-    -instances i_chip_core.mem_ctrl.sram_0 \
+    -instances chip_top.i_chip_core.u_cache.data.sram0 \
     -name sram_macros_NS \
     -starts_with POWER \
     -halo "$::env(PDN_HORIZONTAL_HALO) $::env(PDN_VERTICAL_HALO)"
@@ -237,7 +237,7 @@ add_pdn_stripe \
 
 define_pdn_grid \
     -macro \
-    -instances i_chip_core.tag.sram_0 \
+    -instances chip_top.i_chip_core.u_cache.tag.sram0 \
     -name sram_tag \
     -starts_with POWER \
     -halo "$::env(PDN_HORIZONTAL_HALO) $::env(PDN_VERTICAL_HALO)"

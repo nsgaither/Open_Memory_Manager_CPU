@@ -74,7 +74,7 @@ module chip_core #(
     // Trace/debug (can leave unconnected if unused)
     wire        trace_valid;
     wire [35:0] trace_data;
-z
+    
     // PCPI interface (tied off - not using external coprocessor)
     logic        pcpi_valid;
     logic [31:0] pcpi_insn;
@@ -408,7 +408,7 @@ cache_interface #(
 
         // GPIO
         bidir_out[GPIO_START_ID +: 8] = gpio_pins_o;
-        gipio_pins_i = bidir_data_i[GPIO_START_ID +: 8];
+        gpio_pins_i = bidir_data_i[GPIO_START_ID +: 8];
     end
 
 endmodule

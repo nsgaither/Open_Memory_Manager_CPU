@@ -29,7 +29,9 @@ VERILOG_FILES:
 - dir::../src/chip_top.sv
 - dir::../src/chip_core.sv
 - dir::../ip/picorv32/picorv32.v
+- dir::../src/mem_ctrl/cache_mem.sv
 - dir::../src/mem_ctrl/mem128x32.sv
+- dir::../src/mem_ctrl/mem128x4.sv
 - dir::../src/cache_controller/cache_controller.sv
 - dir::../src/cache_controller/cache.sv
 - dir::../src/interposer_interface/cache_interface.sv
@@ -38,7 +40,6 @@ VERILOG_FILES:
 - dir::../src/interposer_interface/tserializer.sv
 - dir::../src/sp_addr_handling/mmio.sv
 - dir::../src/sp_addr_handling/sp_addr_handler.sv
-- dir::../src/mem_ctrl/mem128x4.sv
 
 # Enable plugin for better SystemVerilog support
 USE_SLANG: True
@@ -201,7 +202,7 @@ MACROS:
         - pdk_dir::libs.ref/gf180mcu_fd_ip_sram/lib/gf180mcu_fd_ip_sram__sram512x8m8wm1__ss_125C_4v50.lib
     instances:
       # Make sure to specify the SRAMs in pdn_cfg.tcl
-      i_chip_core.mem_ctrl.sram_0:
+      chip_top.i_chip_core.u_cache.data.sram0:
         location: [500, 500]
         orientation: N
 
@@ -221,15 +222,15 @@ MACROS:
         - pdk_dir::libs.ref/gf180mcu_fd_ip_sram/lib/gf180mcu_fd_ip_sram__sram64x8m8wm1__ss_125C_4v50.lib
     instances:
       # Make sure to specify the SRAMs in pdn_cfg.tcl
-      i_chip_core.tag.sram_0:
+      chip_top.i_chip_core.u_cache.tag.sram0:
         location: [1000, 1000]
         orientation: N
 
 # This is an alternative method compared to
 # specifying the power connections in the RTL
 PDN_MACRO_CONNECTIONS:
-- "i_chip_core.mem_ctrl.sram_0 VDD VSS VDD VSS"
-- "i_chip_core.tag.sram_0 VDD VSS VDD VSS"
+- "chip_top.i_chip_core.u_cache.data.sram0 VDD VSS VDD VSS"
+- "chip_top.i_chip_core.u_cache.tag.sram0 VDD VSS VDD VSS"
 
 # Halo size around macros while cutting rows.
 # Workaround for: https://github.com/The-OpenROAD-Project/OpenROAD/issues/8868
