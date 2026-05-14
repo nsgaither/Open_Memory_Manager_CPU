@@ -1,31 +1,19 @@
-// SPDX-FileCopyrightText: © 2025 Albert Felix
-// SPDX-License-Identifier: Apache-2.0
-
-// this is sram used to store state bits
-// we use a 64 address 8 bit sram to store 128 4-bit values
-
 `default_nettype none
 
-module mem128x4
+module mem_ctrl_128x4
 (
-  input  wire        clk_i,
-  input  wire        rst_ni,
+  input  logic        clk_i,
+  input  logic        rst_ni,
 
-  // input interface
-  input  wire        mem_valid_i,
-  output wire        mem_ready_o,
-  input  wire [31:0] mem_addr_i,
-  input  wire [3:0]  mem_wdata_i,
+  input  logic        mem_valid_i,
+  output logic        mem_ready_o,
+  input  logic [31:0] mem_addr_i,
+  input  logic [3:0]  mem_wdata_i,
+  input  logic        mem_read_en_i,
 
-  // output interface
-  output wire [3:0]  mem_rdata_o,
-  output wire        mem_valid_o,
-  input  wire        mem_ready_i
-
-  `ifdef USE_POWER_PINS
-	    ,input wire VDD //adding these for librelane
-	    ,input wire VSS
-  `endif
+  output logic [3:0]  mem_rdata_o,
+  output logic        mem_valid_o,
+  input  logic        mem_ready_i
 );
 
   typedef enum logic [2:0] {
@@ -40,16 +28,12 @@ module mem128x4
 
   logic [5:0] reset_addr_q, reset_addr_d;
   logic [5:0] addr_q, addr_d;
-
   logic       nibble_sel_q, nibble_sel_d;
-
   logic [3:0] wdata_q, wdata_d;
-
   logic [7:0] data_read_q, data_read_d;
   logic [7:0] data_to_write_q, data_to_write_d;
   logic [7:0] data_to_write;
 
-  // SRAM interface vars
   logic       sram_enable_n;
   logic [5:0] sram_addr;
   logic [7:0] data_read_from_sram;
@@ -65,8 +49,7 @@ module mem128x4
       wdata_q         <= '0;
       data_read_q     <= '0;
       data_to_write_q <= '0;
-    end
-    else begin
+    end else begin
       state_q         <= state_d;
       reset_addr_q    <= reset_addr_d;
       addr_q          <= addr_d;
@@ -76,6 +59,13 @@ module mem128x4
       data_to_write_q <= data_to_write_d;
     end
   end
+
+  // pre sliced wires
+  logic [5:0] mem_addr_slice;
+  logic       mem_addr_bit0;
+  assign mem_addr_slice = mem_addr_i[6:1];
+  assign mem_addr_bit0  = mem_addr_i[0];
+
 
   always_comb begin
     state_d         = state_q;
@@ -100,45 +90,36 @@ module mem128x4
         sram_enable_n = 1'b0;
         sram_gwen     = 1'b0;
         sram_bit_mask = 8'h00;
-
-        if (reset_addr_q == 6'd63) begin
+        if (reset_addr_q == 6'd63)
           state_d = IDLE;
-        end
-        else begin
+        else
           reset_addr_d = reset_addr_q + 1'b1;
-        end
       end
 
       IDLE: begin
         if (mem_valid_i && mem_ready_o) begin
-
-          addr_d       = mem_addr_i[6:1];
-          nibble_sel_d = mem_addr_i[0];
+          addr_d       = mem_addr_slice;
+          nibble_sel_d = mem_addr_bit0;
           wdata_d      = mem_wdata_i;
+          state_d      = MEM_REQ;
 
-          // issue SRAM access
-          sram_enable_n = 1'b0;
-
-          // write upper nibble
-          if (mem_addr_i[0]) begin
+          if (!mem_read_en_i) begin
+            sram_enable_n = 1'b0;
             sram_gwen     = 1'b0;
-            sram_bit_mask = 8'b00001111;
-            data_to_write_d = {mem_wdata_i, 4'b0000};
+            if (mem_addr_bit0) begin
+              sram_bit_mask   = 8'b00001111;
+              data_to_write_d = {mem_wdata_i, 4'b0000};
+            end else begin
+              sram_bit_mask   = 8'b11110000;
+              data_to_write_d = {4'b0000, mem_wdata_i};
+            end
           end
-
-          // write lower nibble
-          else begin
-            sram_gwen     = 1'b0;
-            sram_bit_mask = 8'b11110000;
-            data_to_write_d = {4'b0000, mem_wdata_i};
-          end
-
-          state_d = MEM_REQ;
         end
       end
 
       MEM_REQ: begin
         sram_enable_n = 1'b0;
+        sram_gwen     = 1'b1;     // read only
         data_read_d   = data_read_from_sram;
         state_d       = MEM_RESP;
       end
@@ -148,54 +129,51 @@ module mem128x4
           state_d = IDLE;
       end
 
-      default: begin
-        state_d = IDLE;
-      end
+      default: state_d = IDLE;
 
     endcase
   end
 
-  // ready/valid logic
   assign mem_ready_o = (state_q == IDLE);
   assign mem_valid_o = (state_q == MEM_RESP);
 
-  // mux out correct nibble
-  logic [3:0] rdata;
 
+  logic [3:0] read_top, read_bot;
+  assign read_top = data_read_q[7:4];
+  assign read_bot = data_read_q[3:0];
   always_comb begin
     if (nibble_sel_q)
-      rdata = data_read_q[7:4];
+      mem_rdata_o = read_top;
     else
-      rdata = data_read_q[3:0];
+      mem_rdata_o = read_bot;
   end
 
-  assign mem_rdata_o = rdata;
-
-  // mux reset/data path into SRAM
   always_comb begin
-    sram_addr    = addr_q;
+    sram_addr     = addr_q;
     data_to_write = data_to_write_q;
 
     if (state_q == RESET_DATA) begin
       sram_addr     = reset_addr_q;
       data_to_write = 8'h00;
+    end else if (state_q == IDLE && mem_valid_i && mem_ready_o && !mem_read_en_i) begin
+      sram_addr = mem_addr_slice;
+      if (mem_addr_bit0)
+        data_to_write = {mem_wdata_i, 4'b0000};
+      else
+        data_to_write = {4'b0000, mem_wdata_i};
     end
   end
 
-  (* keep *) gf180mcu_fd_ip_sram__sram64x8m8wm1 sram_0 (
+  gf180mcu_fd_ip_sram__sram64x8m8wm1 sram0 (
     .CLK (clk_i),
     .CEN (sram_enable_n),
     .GWEN(sram_gwen),
     .WEN (sram_bit_mask),
     .A   (sram_addr),
     .D   (data_to_write),
-    .Q   (data_read_from_sram)
-    `ifdef USE_POWER_PINS
-       // verilator lint_off ASSIGNIN
-    ,.VDD(VDD)
-    ,.VSS(VSS)
-       // verilator lint_on ASSIGNIN
-    `endif
+    .Q   (data_read_from_sram),
+    .VDD (),
+    .VSS ()
   );
 
 endmodule
