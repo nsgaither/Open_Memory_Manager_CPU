@@ -33,7 +33,11 @@ VERILOG_FILES:
 - dir::../src/mem_ctrl/mem128x32.sv
 - dir::../src/mem_ctrl/mem128x4.sv
 - dir::../src/cache_controller/cache_controller.sv
-- dir::../src/cache_controller/cache.sv
+- dir::../src/cache_controller/outbound_arbiter.sv
+- dir::../src/cache_controller/on_snoop_event_state_machine.sv
+- dir::../src/cache_controller/on_processor_event_state_machine.sv
+- dir::../src/cache_controller/apply_wstrb.sv
+- dir::../src/mem_ctrl/two_port_cache_mem.sv
 - dir::../src/interposer_interface/cache_interface.sv
 - dir::../src/interposer_interface/lossy_pipe_stage.sv
 - dir::../src/interposer_interface/rserializer.sv
@@ -202,7 +206,7 @@ MACROS:
         - pdk_dir::libs.ref/gf180mcu_fd_ip_sram/lib/gf180mcu_fd_ip_sram__sram512x8m8wm1__ss_125C_4v50.lib
     instances:
       # Make sure to specify the SRAMs in pdn_cfg.tcl
-      chip_top.i_chip_core.u_cache.data.sram0:
+      i_chip_core.u_cache_controller.cache_mem.u_cache_mem.data.sram0:
         location: [500, 500]
         orientation: N
 
@@ -222,15 +226,15 @@ MACROS:
         - pdk_dir::libs.ref/gf180mcu_fd_ip_sram/lib/gf180mcu_fd_ip_sram__sram64x8m8wm1__ss_125C_4v50.lib
     instances:
       # Make sure to specify the SRAMs in pdn_cfg.tcl
-      chip_top.i_chip_core.u_cache.tag.sram0:
+      i_chip_core.u_cache_controller.cache_mem.u_cache_mem.tag.sram0:
         location: [1000, 1000]
         orientation: N
 
 # This is an alternative method compared to
 # specifying the power connections in the RTL
 PDN_MACRO_CONNECTIONS:
-- "chip_top.i_chip_core.u_cache.data.sram0 VDD VSS VDD VSS"
-- "chip_top.i_chip_core.u_cache.tag.sram0 VDD VSS VDD VSS"
+- "i_chip_core.u_cache_controller.cache_mem.u_cache_mem.data.sram0 VDD VSS VDD VSS"
+- "i_chip_core.u_cache_controller.cache_mem.u_cache_mem.tag.sram0 VDD VSS VDD VSS"
 
 # Halo size around macros while cutting rows.
 # Workaround for: https://github.com/The-OpenROAD-Project/OpenROAD/issues/8868

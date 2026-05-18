@@ -21,13 +21,13 @@ module chip_core #(
     output wire [NUM_INPUT_PADS-1:0] input_pd,   // Pull-down
 
     input  wire [NUM_BIDIR_PADS-1:0] bidir_in,   // Input value
-    output wire [NUM_BIDIR_PADS-1:0] bidir_out,  // Output value
-    output wire [NUM_BIDIR_PADS-1:0] bidir_oe,   // Output enable
-    output wire [NUM_BIDIR_PADS-1:0] bidir_cs,   // Input type (0=CMOS Buffer, 1=Schmitt Trigger)
-    output wire [NUM_BIDIR_PADS-1:0] bidir_sl,   // Slew rate (0=fast, 1=slow)
-    output wire [NUM_BIDIR_PADS-1:0] bidir_ie,   // Input enable
-    output wire [NUM_BIDIR_PADS-1:0] bidir_pu,   // Pull-up
-    output wire [NUM_BIDIR_PADS-1:0] bidir_pd,   // Pull-down
+    output logic [NUM_BIDIR_PADS-1:0] bidir_out,  // Output value
+    output logic [NUM_BIDIR_PADS-1:0] bidir_oe,   // Output enable
+    output logic [NUM_BIDIR_PADS-1:0] bidir_cs,   // Input type (0=CMOS Buffer, 1=Schmitt Trigger)
+    output logic [NUM_BIDIR_PADS-1:0] bidir_sl,   // Slew rate (0=fast, 1=slow)
+    output logic [NUM_BIDIR_PADS-1:0] bidir_ie,   // Input enable
+    output logic [NUM_BIDIR_PADS-1:0] bidir_pu,   // Pull-up
+    output logic [NUM_BIDIR_PADS-1:0] bidir_pd,   // Pull-down
 
     inout  wire [NUM_ANALOG_PADS-1:0] analog  // Analog
 );
@@ -178,11 +178,13 @@ module chip_core #(
     wire [31:0] flush_addr;
     wire flush_valid;
 
-    wire gpio_pins_o;
-    wire gpio_pins_i;
-    wire gpio_dir;
+    wire [7:0] gpio_pins_o;
+    logic [7:0] gpio_pins_i;
+    wire [7:0] gpio_dir;
 
-    wire cpu_id;
+    wire [7:0] cpu_id;
+
+    logic debug;
 
     sp_addr_handler u_sp_addr_handler (
     .clk_i           (clk_i),
@@ -247,6 +249,7 @@ cache_controller #(
   .rst_ni                (rst_n),
 
   .mem_valid_i           (pass_mem_valid),
+  .mem_instr_i           (mem_instr),
   .mem_ready_o           (pass_mem_ready),
   .mem_addr_i            (pass_mem_addr),
   .mem_wdata_i           (pass_mem_wdata),
@@ -282,32 +285,12 @@ cache_controller #(
 
   .snoop_valid_i         (snoop_valid),
   .snoop_ready_o         (snoop_ready),
-  .snoop_data_i          (snoop_data),
+  .snoop_addr_i          (snoop_data),
   .snoop_dircmd_i        (snoop_dircmd)
-);
-
-// Cache
-// Cache controller -> this
-cache_mem #() 
-	u_cache (
-  .clk_i      (clk_i),
-  .rst_ni     (rst_n),
-
-  // input interface
-  .valid_i    (),
-  .ready_o    (),
-  .addr_i     (),
-  .wdata_i    (),
-  .wstrb_i    (),
-  .wstate_i   (),
-  .wtag_i     (),
-
-  // output interface
-  .rdata_o    (),
-  .rtag_o     (),
-  .rstate_o   (),
-  .valid_o    (),
-  .ready_i    ()
+  `ifdef USE_POWER_PINS
+  ,.VDD(VDD)
+  ,.VSS(VSS)
+  `endif
 );
 
 // cache_interposer_interface
@@ -316,8 +299,8 @@ wire                 rbusy;
 
 wire                 req_o;
 wire [NUM_TPINS-1:0] serial_o;
-wire                 req_i;
-wire [NUM_RPINS-1:0] serial_i;
+logic                 req_i;
+logic [NUM_RPINS-1:0] serial_i;
 
 cache_interface #(
     .NUM_TPINS (NUM_TPINS),
@@ -368,27 +351,27 @@ cache_interface #(
     assign input_pd = '0;
 
     // bidirectional pad control
-    always_comb begin : birdir_control
+    always_comb begin : bidir_control
         // defaults
-        birdir_oe = '0;
-        birdir_cs = '0;
-        birdir_sl = '0;
-        birdir_ie = ~birdir_oe;
+        bidir_oe = '0;
+        bidir_cs = '0;
+        bidir_sl = '0;
+        bidir_ie = ~bidir_oe;
         bidir_pu = '0;
         bidir_pd = '0;
 
         // IO control
-        birdir_oe[GPIO_START_ID +: 8] = gpio_dir;
-        birdir_oe[DEBUG_ID] = 1'b0;                     // debug pin is input only
-        birdir_oe[TRAP_ID] = 1'b1;                      // trap pin is output only
-        birdir_oe[REQ_I_ID] = 1'b0;                     // req_i is input only
-        birdir_oe[REQ_O_ID] = 1'b1;                     // req_o is output only
-        birdir_oe[SERIAL_I_START_ID +: NUM_RPINS] = '0; // serial_i is input only
-        birdir_oe[SERIAL_O_START_ID +: NUM_TPINS] = '1; // serial_o is output only
+        bidir_oe[GPIO_START_ID +: 8] = gpio_dir;
+        bidir_oe[DEBUG_ID] = 1'b0;                     // debug pin is input only
+        bidir_oe[TRAP_ID] = 1'b1;                      // trap pin is output only
+        bidir_oe[REQ_I_ID] = 1'b0;                     // req_i is input only
+        bidir_oe[REQ_O_ID] = 1'b1;                     // req_o is output only
+        bidir_oe[SERIAL_I_START_ID +: NUM_RPINS] = '0; // serial_i is input only
+        bidir_oe[SERIAL_O_START_ID +: NUM_TPINS] = '1; // serial_o is output only
     end
 
     // bidirectional pad data routing
-    wire [NUM_BIDIR_PADS-1:0] bidir_data_i;
+    logic [NUM_BIDIR_PADS-1:0] bidir_data_i;
     always_comb begin : bidir_data
         // defaults
         bidir_data_i = bidir_in;

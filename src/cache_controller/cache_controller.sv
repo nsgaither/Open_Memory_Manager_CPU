@@ -38,6 +38,11 @@ module cache_controller
   input  logic [31:0] snoop_addr_i,
   input  logic [2:0]  snoop_dircmd_i,
   output logic        snoop_ready_o
+
+  `ifdef USE_POWER_PINS
+  ,input wire VDD
+  ,input wire VSS
+  `endif
 );
 
   // Local parameters
@@ -192,6 +197,10 @@ module cache_controller
     .p1_rstate_o(cm_snoop_rstate_o),
     .p1_valid_o(cm_snoop_valid_o),
     .p1_ready_i(cm_snoop_ready_i)
+    `ifdef USE_POWER_PINS
+    ,.VDD(VDD)
+    ,.VSS(VSS)
+    `endif
   );
 
   // outbound arbiter
@@ -350,9 +359,6 @@ module cache_controller
     outbound_snoop_cache_cmd_i   = '0;
     // outbound_snoop_cache_ready_o = '0;
 
-    // incoming bus ack (default off)
-    bus_ready_o = 1'b0;
-
     // snoop ready handshake (default off)
     snoop_ready_o = 1'b0;
 
@@ -504,6 +510,7 @@ module cache_controller
     // cpu-interface (default off)
     mem_ready_o = 1'b0;
     mem_rdata_o = '0;
+    bus_ready_o = 1'b0;
 
     case (cpu_state_q)
 

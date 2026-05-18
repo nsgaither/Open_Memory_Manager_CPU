@@ -41,6 +41,11 @@ module two_port_cache_mem #(
   output logic [STATE_W-1:0]    p1_rstate_o,
   output logic                  p1_valid_o,
   input  logic                  p1_ready_i
+
+  `ifdef USE_POWER_PINS
+  ,input wire VDD
+  ,input wire VSS
+  `endif
 );
 
   // ============================================================
@@ -224,6 +229,10 @@ module two_port_cache_mem #(
 
     .valid_o  (cm_valid_o),
     .ready_i  (cm_ready_i)
+    `ifdef USE_POWER_PINS
+    ,.VDD(VDD)
+    ,.VSS(VSS)
+    `endif
   );
 
 endmodule

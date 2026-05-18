@@ -26,6 +26,11 @@ module cache_mem
   output wire [1:0]   rstate_o, // state read
   output wire         valid_o,
   input  wire         ready_i
+
+  `ifdef USE_POWER_PINS
+  ,input wire VDD
+  ,input wire VSS
+  `endif
 );
 
   // combine tag_i and state_i for easier storage
@@ -56,6 +61,10 @@ module cache_mem
     .mem_rdata_o(tag_plus_state_o),
     .mem_valid_o(tag_mem_valid),
     .mem_ready_i(ready_i && data_mem_valid)
+    `ifdef USE_POWER_PINS
+    ,.VDD(VDD)
+    ,.VSS(VSS)
+    `endif
   );
 
   mem128x32 data
@@ -70,6 +79,10 @@ module cache_mem
     .mem_rdata_o(rdata_o),
     .mem_valid_o(data_mem_valid),
     .mem_ready_i(ready_i)
+    `ifdef USE_POWER_PINS
+    ,.VDD(VDD)
+    ,.VSS(VSS)
+    `endif
   );
 
 endmodule
