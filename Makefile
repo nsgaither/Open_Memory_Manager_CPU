@@ -27,7 +27,7 @@ help: ## Show this help message
 	@echo 'Usage: make [target]'
 	@echo ''
 	@echo 'Available targets:'
-	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  %-20s %s\n", $$1, $$2}'
+	@grep -E '^[a-zA-Z0-9_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  %-20s %s\n", $$1, $$2}'
 .PHONY: help
 
 all: librelane ## Build the project (runs LibreLane)
@@ -107,3 +107,45 @@ test-cocotb-clean: ## Clean cocotb build files
 	rm -rf cocotb/sim_build cocotb/__pycache__ cocotb/*.fst cocotb/*.vcd
 .PHONY: test-cocotb-clean
 .PHONY: test-cpu-clean
+
+# ─── Cocotb testbench targets (following OMM pattern) ────────────────────────
+
+test-cache-controller: ## Run cache controller cocotb testbench
+	cd cocotb; PDK_ROOT=${PDK_ROOT} PDK=${PDK} SLOT=${SLOT} python3 cache_controller_tb.py
+.PHONY: test-cache-controller
+
+test-cache-interface: ## Run cache interface cocotb testbench
+	cd cocotb; PDK_ROOT=${PDK_ROOT} PDK=${PDK} SLOT=${SLOT} python3 cache_interface_tb.py
+.PHONY: test-cache-interface
+
+test-cache-mem: ## Run cache memory cocotb testbench
+	cd cocotb; PDK_ROOT=${PDK_ROOT} PDK=${PDK} SLOT=${SLOT} python3 cache_mem_tb.py
+.PHONY: test-cache-mem
+
+test-cache-sram: ## Run cache SRAM golden-model cocotb testbench
+	cd cocotb; PDK_ROOT=${PDK_ROOT} PDK=${PDK} SLOT=${SLOT} python3 cache_sram_test.py
+.PHONY: test-cache-sram
+
+test-mem128x32: ## Run mem128x32 cocotb testbench
+	cd cocotb; PDK_ROOT=${PDK_ROOT} PDK=${PDK} SLOT=${SLOT} python3 mem128x32_tb.py
+.PHONY: test-mem128x32
+
+test-mem-ctrl-512: ## Run mem_ctrl_512x32 cocotb testbench
+	cd cocotb; PDK_ROOT=${PDK_ROOT} PDK=${PDK} SLOT=${SLOT} python3 mem_ctrl_512x32_tb.py
+.PHONY: test-mem-ctrl-512
+
+test-two-port-cache-mem: ## Run two_port_cache_mem cocotb testbench
+	cd cocotb; PDK_ROOT=${PDK_ROOT} PDK=${PDK} SLOT=${SLOT} python3 two_port_cache_mem_tb.py
+.PHONY: test-two-port-cache-mem
+
+test-mem-ctrl-128x4: ## Run mem_ctrl_128x4 cocotb testbench
+	cd cocotb; PDK_ROOT=${PDK_ROOT} PDK=${PDK} SLOT=${SLOT} python3 test_mem_ctrl_128x4.py
+.PHONY: test-mem-ctrl-128x4
+
+test-all: ## Run all cocotb testbenches via test_all_cocotb.py
+	cd cocotb; PDK_ROOT=${PDK_ROOT} PDK=${PDK} SLOT=${SLOT} python3 test_all_cocotb.py
+.PHONY: test-all
+
+clean-sim: ## Remove all sim_build dirs in cocotb
+	rm -rf cocotb/sim_build*
+.PHONY: clean-sim

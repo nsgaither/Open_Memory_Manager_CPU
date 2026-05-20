@@ -16,7 +16,6 @@ DUT ports (mem_ctrl_128x32):
     clk_i        input
     rst_ni       input  (active-low reset)
     mem_valid_i  input  [0:0]
-    mem_instr_i  input  [0:0]
     mem_addr_i   input  [31:0]
     mem_wdata_i  input  [31:0]
     mem_wstrb_i  input  [3:0]
@@ -41,7 +40,7 @@ pdk_root = os.getenv("PDK_ROOT", Path("~/.ciel").expanduser())
 pdk      = os.getenv("PDK",      "gf180mcuD")
 scl      = os.getenv("SCL",      "gf180mcu_fd_sc_mcu7t5v0")
 
-hdl_toplevel = "mem_ctrl_128x32"
+hdl_toplevel = "mem128x32"
 
 # SRAM is 512x8 (bytes), controller presents 128x32 (words)
 INIT_BYTE_CYCLES = 512   # FSM resets 512 byte addresses
@@ -62,7 +61,6 @@ async def _reset(dut, cycles: int = 4):
     """Assert active-low reset for *cycles* clock edges, then release."""
     dut.rst_ni.value = 0
     dut.mem_valid_i.value = 0
-    dut.mem_instr_i.value = 0
     dut.mem_addr_i.value  = 0
     dut.mem_wdata_i.value = 0
     dut.mem_wstrb_i.value = 0
@@ -89,7 +87,6 @@ async def _cpu_read(dut, addr: int) -> int:
     """Drive a CPU read request and wait for mem_ready_o; returns rdata."""
     await FallingEdge(dut.clk_i)
     dut.mem_valid_i.value = 1
-    dut.mem_instr_i.value = 0
     dut.mem_addr_i.value  = addr
     dut.mem_wdata_i.value = 0
     dut.mem_wstrb_i.value = 0             # read
@@ -106,7 +103,6 @@ async def _cpu_write(dut, addr: int, data: int, strb: int = 0xF):
     """Drive a CPU write request and wait for mem_ready_o."""
     await FallingEdge(dut.clk_i)
     dut.mem_valid_i.value = 1
-    dut.mem_instr_i.value = 0
     dut.mem_addr_i.value  = addr
     dut.mem_wdata_i.value = data
     dut.mem_wstrb_i.value = strb

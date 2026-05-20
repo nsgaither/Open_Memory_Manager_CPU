@@ -139,11 +139,11 @@ def test_two_port_cache_mem():
         pdk_root / "gf180mcuD/libs.ref/gf180mcu_fd_ip_sram/verilog/gf180mcu_fd_ip_sram__sram512x8m8wm1.v",
         pdk_root / "gf180mcuD/libs.ref/gf180mcu_fd_ip_sram/verilog/gf180mcu_fd_ip_sram__sram64x8m8wm1.v",
 
-        proj_path / "../src/mem_ctrl/cache_dir_memory/mem128x32.sv",
-        proj_path / "../src/mem_ctrl/cache_dir_memory/mem128x4.sv",
-        proj_path / "../src/mem_ctrl/cache_dir_memory/cache_mem.sv",
+        proj_path / "../src/mem_ctrl/mem128x32.sv",
+        proj_path / "../src/mem_ctrl/mem128x4.sv",
+        proj_path / "../src/mem_ctrl/cache_mem.sv",
 
-        proj_path / "../src/mem_ctrl/cache_dir_memory/two_port_cache_mem.sv",
+        proj_path / "../src/mem_ctrl/two_port_cache_mem.sv",
     ]
 
     build_args = []

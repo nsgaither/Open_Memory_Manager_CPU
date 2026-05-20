@@ -12,13 +12,13 @@ from cocotb_tools.runner import get_runner
 from emulation.memory_v2 import MemoryController
 
 sim = os.getenv("SIM", "icarus")
-pdk_root = Path("../gf180mcu")
+pdk_root = Path(os.getenv("PDK_ROOT", "../gf180mcu"))
 pdk = os.getenv("PDK", "gf180mcuD")
 scl = os.getenv("SCL", "gf180mcu_fd_sc_mcu7t5v0")
 gl = os.getenv("GL", False)
 slot = os.getenv("SLOT", "1x1")
 
-hdl_toplevel = "mem_ctrl_128x32"
+hdl_toplevel = "mem128x32"
 
 async def start_clock(dut, freq_mhz=50):
     clock = Clock(dut.clk_i, 1 / freq_mhz * 1000, unit="ns")
@@ -143,7 +143,7 @@ def mem_ctrl_runner():
         # SRAM macro
         Path(pdk_root) / pdk / "libs.ref/gf180mcu_fd_ip_sram/verilog/gf180mcu_fd_ip_sram__sram512x8m8wm1.v",
         # SRAM bank 
-        proj_path / "../src/mem_ctrl/cache_dir_memory/mem128x32.sv",
+        proj_path / "../src/mem_ctrl/mem128x32.sv",
     ]
 
     build_args = []
@@ -155,14 +155,14 @@ def mem_ctrl_runner():
     runner = get_runner(sim)
     runner.build(
         sources=sources,
-        hdl_toplevel="mem_ctrl_128x32",
+        hdl_toplevel="mem128x32",
         always=True,
         build_args=build_args,
         waves=True,
     )
 
     runner.test(
-        hdl_toplevel="mem_ctrl_128x32",
+        hdl_toplevel="mem128x32",
         test_module="cache_sram_test",
         waves=True,
     )

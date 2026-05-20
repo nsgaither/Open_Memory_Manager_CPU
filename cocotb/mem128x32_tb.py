@@ -17,7 +17,7 @@ pdk = os.getenv("PDK", "gf180mcuD")
 scl = os.getenv("SCL", "gf180mcu_fd_sc_mcu7t5v0")
 gl = os.getenv("GL", False)
 
-hdl_toplevel = "mem_ctrl_128x32"
+hdl_toplevel = "mem128x32"
 
 async def start_clock(clock, freq=50):
     """Start the clock @ freq MHz"""

@@ -173,7 +173,6 @@ async def send_snoop(dut, addr: int, dircmd: int):
     ack_addr, _, ack_cmd = await wait_for_cache_valid(dut)
     await ack_cache_cmd(dut)
     return ack_cmd, ack_addr
-y_i. When cache_ready_i is asserted, cache_valid_o should still be 1 if the master is still
 
 # ─── Full transaction wrappers ───────────────────────────────────────────────
 
@@ -449,7 +448,6 @@ async def test_byte_write_strobe(dut):
         assert dut.cache_valid_o.value == 0, \
             "Unexpected outbound command on Modified write-hit"
     await write_task
-y_i. When cache_ready_i is asserted, cache_valid_o should still be 1 if the master is still
     # Read back: bytes [31:8] unchanged, byte [7:0] = 0xFF
     expected = (FILL_DATA & 0xFFFFFF00) | 0xFF
     rdata = await with_timeout(
@@ -499,15 +497,15 @@ def cache_controller_test():
     pdk_root  = Path("../gf180mcu")
 
     sources = [
-        proj_path / "../src/msi_protocol/apply_wstrb.sv",
-        proj_path / "../src/msi_protocol/on_processor_event_state_machine.sv",
-        proj_path / "../src/msi_protocol/on_snoop_event_state_machine.sv",
-        proj_path / "../src/msi_protocol/cache_controller.sv",
-        proj_path / "../src/msi_protocol/outbound_arbiter.sv",
-        proj_path / "../src/mem_ctrl/cache_dir_memory/mem128x4.sv",
-        proj_path / "../src/mem_ctrl/cache_dir_memory/mem128x32.sv",
-        proj_path / "../src/mem_ctrl/cache_dir_memory/cache_mem.sv",
-        proj_path / "../src/mem_ctrl/cache_dir_memory/two_port_cache_mem.sv",
+        proj_path / "../src/cache_controller/apply_wstrb.sv",
+        proj_path / "../src/cache_controller/on_processor_event_state_machine.sv",
+        proj_path / "../src/cache_controller/on_snoop_event_state_machine.sv",
+        proj_path / "../src/cache_controller/cache_controller.sv",
+        proj_path / "../src/cache_controller/outbound_arbiter.sv",
+        proj_path / "../src/mem_ctrl/mem128x4.sv",
+        proj_path / "../src/mem_ctrl/mem128x32.sv",
+        proj_path / "../src/mem_ctrl/cache_mem.sv",
+        proj_path / "../src/mem_ctrl/two_port_cache_mem.sv",
         pdk_root / "gf180mcuD/libs.ref/gf180mcu_fd_ip_sram/verilog/gf180mcu_fd_ip_sram__sram512x8m8wm1.v",
         pdk_root / "gf180mcuD/libs.ref/gf180mcu_fd_ip_sram/verilog/gf180mcu_fd_ip_sram__sram64x8m8wm1.v",
     ]
