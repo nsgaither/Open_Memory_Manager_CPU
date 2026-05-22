@@ -30,7 +30,11 @@ module cache_controller
   input  logic        snoop_valid_i,
   input  logic [31:0] snoop_addr_i,
   input  logic [2:0]  snoop_dircmd_i,
-  output logic        snoop_ready_o
+  output logic        snoop_ready_o,
+  // ── CPU-initiated Flush ─────────────────────────────────────────
+  input  logic        flush_valid_i,
+  input  logic [31:0] flush_addr_i,
+  output logic        flush_ready_o
 
   `ifdef USE_POWER_PINS
     ,input wire VDD
@@ -74,22 +78,25 @@ module cache_controller
     SNP_UPDATE_LINE_RESP = 3'd6,
     SNP_DONE             = 3'd7
   } snp_state_t;
-  typedef enum logic [3:0] {
-      CPU_IDLE                       = 4'd1,
-      CPU_FETCH_LINE_REQ             = 4'd2,
-      CPU_FETCH_LINE_RESP            = 4'd3,
-      CPU_TAG_MISS                   = 4'd4,
-      CPU_TAG_MATCH                  = 4'd5,
-      CPU_READ_MISS                  = 4'd6,
-      CPU_READ_MISS_ACK              = 4'd7,
-      CPU_READ_MISS_UPDATE_LINE_REQ  = 4'd8,
-      CPU_READ_MISS_UPDATE_LINE_RESP = 4'd9,
-      CPU_READ_REQ                   = 4'd10,
-      CPU_READ_RESP                  = 4'd11,
-      CPU_WRITE_MISS                 = 4'd12,
-      CPU_WRITE_MISS_ACK             = 4'd13,
-      CPU_WRITE_REQ                  = 4'd14,
-      CPU_WRITE_RESP                 = 4'd15
+  typedef enum logic [4:0] {
+      CPU_IDLE                       = 5'd1,
+      CPU_FETCH_LINE_REQ             = 5'd2,
+      CPU_FETCH_LINE_RESP            = 5'd3,
+      CPU_TAG_MISS                   = 5'd4,
+      CPU_TAG_MATCH                  = 5'd5,
+      CPU_READ_MISS                  = 5'd6,
+      CPU_READ_MISS_ACK              = 5'd7,
+      CPU_READ_MISS_UPDATE_LINE_REQ  = 5'd8,
+      CPU_READ_MISS_UPDATE_LINE_RESP = 5'd9,
+      CPU_READ_REQ                   = 5'd10,
+      CPU_READ_RESP                  = 5'd11,
+      CPU_WRITE_MISS                 = 5'd12,
+      CPU_WRITE_MISS_ACK             = 5'd13,
+      CPU_WRITE_REQ                  = 5'd14,
+      CPU_WRITE_RESP                 = 5'd15,
+      CPU_FLUSH_EVICT                = 5'd16,
+      CPU_FLUSH_WRITEBACK            = 5'd17,
+      CPU_FLUSH_DONE                 = 5'd18
   } cpu_state_t;
   // Registers 
   cpu_state_t cpu_state_q, cpu_state_d;
@@ -105,6 +112,8 @@ module cache_controller
   logic [1:0]  cpu_line_tag_q,   cpu_line_tag_d;
   logic [1:0]  cpu_line_state_q, cpu_line_state_d;   
   logic        tag_match_cpu_q,  tag_match_cpu_d;
+  // Flush state
+  logic        flush_pending_q,  flush_pending_d;
   // Snoop-side latched info about the current snoop
   logic [31:0] snp_addr_q,       snp_addr_d;
   logic [2:0]  snp_dircmd_q,     snp_dircmd_d;
@@ -269,6 +278,7 @@ module cache_controller
       cpu_line_tag_q   <= 2'd0;
       cpu_line_state_q <= S_INVALID;    // NEW
       tag_match_cpu_q  <= 1'b1;
+      flush_pending_q  <= 1'b0;
       snp_addr_q       <= 32'b0;
       snp_dircmd_q     <= 3'b0;
       snp_next_state_q <= S_INVALID;
@@ -289,6 +299,7 @@ module cache_controller
       cpu_line_tag_q   <= cpu_line_tag_d;
       cpu_line_state_q <= cpu_line_state_d; // NEW
       tag_match_cpu_q  <= tag_match_cpu_d;
+      flush_pending_q  <= flush_pending_d;
       snp_addr_q       <= snp_addr_d;
       snp_dircmd_q     <= snp_dircmd_d;
       snp_next_state_q <= snp_next_state_d;
@@ -328,8 +339,6 @@ module cache_controller
     outbound_snoop_cache_data_i  = '0;
     outbound_snoop_cache_cmd_i   = '0;
     // outbound_snoop_cache_ready_o = '0;
-    // incoming bus ack (default off)
-    bus_ready_o = 1'b0;
     // snoop ready handshake (default off)
     snoop_ready_o = 1'b0;
     case (snp_state_q)
@@ -461,9 +470,20 @@ module cache_controller
     // cpu-interface (default off)
     mem_ready_o = 1'b0;
     mem_rdata_o = '0;
+    // bus ack (default off)
+    bus_ready_o = 1'b0;
+    // flush (default off)
+    flush_ready_o = 1'b0;
+    flush_pending_d = flush_pending_q;
     case (cpu_state_q)
       CPU_IDLE: begin
-        if (mem_valid_i) begin
+        if (flush_valid_i) begin
+          cpu_addr_d   = flush_addr_i;
+          cpu_wdata_d  = '0;
+          cpu_wstrb_d  = '0;
+          cpu_state_d  = CPU_FETCH_LINE_REQ;
+          flush_pending_d = 1'b1;
+        end else if (mem_valid_i) begin
           cpu_addr_d  = mem_addr_i;
           cpu_wdata_d = mem_wdata_i;
           cpu_wstrb_d = mem_wstrb_i;
@@ -480,7 +500,17 @@ module cache_controller
       end
       CPU_FETCH_LINE_RESP: begin
         if (cm_cpu_valid_o) begin
-          if (cm_cpu_rtag_o != cpu_addr_tag && cm_cpu_rstate_o != S_INVALID) begin
+          if (flush_pending_q) begin
+            // flush path: latch line and decide next step based on state
+            cpu_line_data_d  = cm_cpu_rdata_o;
+            cpu_line_tag_d   = cm_cpu_rtag_o;
+            cpu_line_state_d = cm_cpu_rstate_o;
+            if (cm_cpu_rstate_o == S_MODIFIED) begin
+              cpu_state_d = CPU_FLUSH_EVICT;
+            end else begin
+              cpu_state_d = CPU_FLUSH_WRITEBACK;
+            end
+          end else if (cm_cpu_rtag_o != cpu_addr_tag && cm_cpu_rstate_o != S_INVALID) begin
             // tag miss with a valid line -> need to flush before refill.
             tag_match_cpu_d  = 1'b0;
             cpu_line_data_d  = cm_cpu_rdata_o;
@@ -649,6 +679,35 @@ module cache_controller
         if (cm_cpu_valid_o) begin
           mem_ready_o    = 1'b1;
           cm_cpu_ready_i = 1'b1;
+          tag_match_cpu_d = 1'b1;
+          cpu_state_d     = CPU_IDLE;
+        end
+      end
+      CPU_FLUSH_EVICT: begin
+        outbound_cpu_cache_valid_i = 1'b1;
+        outbound_cpu_cache_addr_i  = cpu_addr_q;
+        outbound_cpu_cache_data_i  = cpu_line_data_q;
+        outbound_cpu_cache_cmd_i   = EvictDirty_1h;
+        if (outbound_cpu_cache_ready_o) begin
+          cpu_state_d = CPU_FLUSH_WRITEBACK;
+        end
+      end
+      CPU_FLUSH_WRITEBACK: begin
+        cm_cpu_valid_i  = 1'b1;
+        cm_cpu_addr_i   = cpu_addr_q;
+        cm_cpu_wstrb_i  = '1;
+        cm_cpu_wdata_i  = cpu_line_data_q;
+        cm_cpu_wtag_i   = cpu_addr_tag;
+        cm_cpu_wstate_i = S_INVALID;
+        if (cm_cpu_ready_o) begin
+          cpu_state_d = CPU_FLUSH_DONE;
+        end
+      end
+      CPU_FLUSH_DONE: begin
+        if (cm_cpu_valid_o) begin
+          cm_cpu_ready_i  = 1'b1;
+          flush_ready_o   = 1'b1;
+          flush_pending_d = 1'b0;
           tag_match_cpu_d = 1'b1;
           cpu_state_d     = CPU_IDLE;
         end

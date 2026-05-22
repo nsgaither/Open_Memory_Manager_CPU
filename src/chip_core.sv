@@ -241,10 +241,7 @@ wire [31:0] snoop_data;
 wire [ 2:0] snoop_dircmd;
 wire        snoop_ready;
 
-cache_controller #(
-  .NumSets     (NUM_SETS),
-  .WordsPerLine (WORDS_PER_LINE)
-) u_cache_controller (
+cache_controller u_cache_controller (
   .clk_i                 (clk_i),
   .rst_ni                (rst_n),
 
@@ -259,18 +256,6 @@ cache_controller #(
   .flush_valid_i         (flush_valid),
   .flush_addr_i          (flush_addr),
   .flush_ready_o         (flush_ready),
-
-  .data_cache_rd_en_o    (),
-  .data_cache_rd_set_o   (),
-  .data_cache_rd_word_o  (),
-  .data_cache_rd_data_i  (),
-
-  .data_cache_wr_en_o    (),
-  .data_cache_wr_set_o   (),
-  .data_cache_wr_word_o  (),
-  .data_cache_wr_data_o  (),
-  .data_cache_wr_strb_o  (),
-  .data_cache_ready_i    (),
 
   .cache_valid_o         (cache_valid),
   .cache_ready_i         (cache_ready),
