@@ -31,6 +31,11 @@ module cache_controller
   input  logic [31:0] snoop_addr_i,
   input  logic [2:0]  snoop_dircmd_i,
   output logic        snoop_ready_o
+
+  `ifdef USE_POWER_PINS
+    ,input wire VDD
+    ,input wire VSS
+    `endif
 );
   // Local parameters
   localparam logic [1:0] S_INVALID  = 2'b00;
@@ -165,6 +170,10 @@ module cache_controller
     .p1_rstate_o(cm_snoop_rstate_o),
     .p1_valid_o(cm_snoop_valid_o),
     .p1_ready_i(cm_snoop_ready_i)
+    `ifdef USE_POWER_PINS
+    ,.VDD(VDD)
+    ,.VSS(VSS)
+    `endif
   );
   // outbound arbiter
   logic        outbound_cpu_cache_valid_i;
