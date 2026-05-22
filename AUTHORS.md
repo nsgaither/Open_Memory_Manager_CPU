@@ -6,4 +6,12 @@ All categories arranged alphabetically.
 > significant portions of the code. See the contributors graph for a full list of
 > human authors.
 
+## Template creator
 * Leo Moser \<leo.moser@pm.me\>
+
+## Primary Team
+* Nicholas Gaither \<nicholas.gaither@gmail.com\>
+* Albert Felix
+* Saanj Shetty
+* Jack Wong
+* Rishikesh Sethuraman
