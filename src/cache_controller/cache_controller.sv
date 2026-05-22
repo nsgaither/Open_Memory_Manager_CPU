@@ -9,8 +9,8 @@ module cache_controller
   input  logic        rst_ni,
   // ── Processor → Cache ────────────────────────────────────────────
   input  logic        mem_valid_i,
-  input  logic        mem_instr_i,
-  input  logic [31:0] mem_addr_i,
+  input  logic        mem_instr_i, /* verilator lint_off UNUSEDSIGNAL */
+  input  logic [31:0] mem_addr_i, /* verilator lint_on UNUSEDSIGNAL */
   input  logic [31:0] mem_wdata_i,
   input  logic [3:0]  mem_wstrb_i,
   output logic        mem_ready_o,
@@ -51,9 +51,6 @@ module cache_controller
   localparam logic [8:0] SnoopBusUPGR_Ack_1h = 9'b10000000;
   // coherence cmds
   localparam logic [8:0] NULLcc1h            = 9'b0;
-  localparam logic [8:0] BusRD_1h            = 9'b1;
-  localparam logic [8:0] BusRDX_1h           = 9'b10;
-  localparam logic [8:0] BusUPGR_1h          = 9'b100;
   localparam logic [8:0] EvictClean_1h       = 9'b1000;
   localparam logic [8:0] EvictDirty_1h       = 9'b10000;
   // coherence cmd acks
@@ -66,8 +63,7 @@ module cache_controller
   localparam int OFFSET_W = 0;
   localparam int INDEX_W  = 7;
   localparam int TAG_W    = 2;
-  localparam int TAG_HI   = OFFSET_W + INDEX_W + TAG_W - 1;  // 8
-  localparam int TAG_LO   = OFFSET_W + INDEX_W;               // 7
+
   typedef enum logic [2:0] {
     SNP_IDLE             = 3'd0,
     SNP_FETCH_LINE_REQ   = 3'd1,
@@ -126,8 +122,8 @@ module cache_controller
   // on_cpu_request port
   logic        cm_cpu_valid_i;
   logic        cm_cpu_ready_i;
-  logic [31:0] cm_cpu_addr_i;
-  logic [31:0] cm_cpu_wdata_i;
+  logic [31:0] cm_cpu_addr_i; /* verilator lint_off UNUSEDSIGNAL */
+  logic [31:0] cm_cpu_wdata_i; /* verilator lint_on UNUSEDSIGNAL */
   logic [3:0]  cm_cpu_wstrb_i;
   logic [1:0]  cm_cpu_wstate_i;
   logic [1:0]  cm_cpu_wtag_i;
@@ -139,8 +135,8 @@ module cache_controller
   // on_snoop_request port
   logic        cm_snoop_valid_i;
   logic        cm_snoop_ready_i;
-  logic [31:0] cm_snoop_addr_i;
-  logic [31:0] cm_snoop_wdata_i;
+  logic [31:0] cm_snoop_addr_i; /* verilator lint_off UNUSEDSIGNAL */
+  logic [31:0] cm_snoop_wdata_i; /* verilator lint_on UNUSEDSIGNAL */
   logic [3:0]  cm_snoop_wstrb_i;
   logic [1:0]  cm_snoop_wstate_i;
   logic [1:0]  cm_snoop_wtag_i;
@@ -217,8 +213,8 @@ module cache_controller
   // ============================================================
   // on_snoop_event_state_machine
   // ============================================================
-  logic [1:0] on_snoop_event_state_o;
-  logic       on_snnop_event_flush_o;
+  logic [1:0] on_snoop_event_state_o; /* verilator lint_off UNUSEDSIGNAL */
+  logic       on_snnop_event_flush_o; /* verilator lint_on UNUSEDSIGNAL */
   on_snoop_event_state_machine u_snoop_sm (
     .current_state_i (snp_line_state_q),
     .snoop_event_i   (snp_dircmd_q),   // one-hot: 001=RD 010=RDX 100=UPGR

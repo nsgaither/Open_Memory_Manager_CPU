@@ -85,7 +85,8 @@ module two_port_cache_mem #(
     grant_p1 = 0;
 
     if (!busy) begin
-      case ({p1_valid_i, p0_valid_i})
+      unique case ({p1_valid_i, p0_valid_i})
+        2'b00: ;
         2'b01: grant_p0 = 1;
         2'b10: grant_p1 = 1;
         2'b11: begin

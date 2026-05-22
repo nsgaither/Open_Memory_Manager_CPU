@@ -7,8 +7,8 @@ module mem128x32
 
   input  wire [0:0]   mem_valid_i,
   output wire [0:0]   mem_ready_o,
-  input  wire [31:0]  mem_addr_i,
-  input  wire [31:0]  mem_wdata_i,
+  input  wire [31:0]  mem_addr_i, /* verilator lint_off UNUSEDSIGNAL */
+  input  wire [31:0]  mem_wdata_i, /* verilator lint_on UNUSEDSIGNAL */
   input  wire [3:0]   mem_wstrb_i,
 
   output wire [31:0]  mem_rdata_o,

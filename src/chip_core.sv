@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 `default_nettype none
+`timescale 1ns/1ps
 
 module chip_core #(
     parameter NUM_INPUT_PADS,
@@ -16,7 +17,7 @@ module chip_core #(
     input  wire clk,       // clock
     input  wire rst_n,     // reset (active low)
     
-    input  wire [NUM_INPUT_PADS-1:0] input_in,   // Input value
+    input  wire [NUM_INPUT_PADS-1:0] input_in /* verilator lint_off UNUSEDSIGNAL */,   // Input value
     output wire [NUM_INPUT_PADS-1:0] input_pu,   // Pull-up
     output wire [NUM_INPUT_PADS-1:0] input_pd,   // Pull-down
 
@@ -46,13 +47,10 @@ module chip_core #(
     localparam GPIO_START_ID = 23;
     
     // For cache TODO: no idea what these are yet
-    localparam NUM_SETS = 64;
-    localparam WORDS_PER_LINE = 1;
 
     // TODO: add DLL and other clock management if needed
-    wire clk_i, rst_ni;
+    wire clk_i;
     assign clk_i = clk;
-    assign rst_ni = rst_n;
 
     // PicoRV32 memory interface
     wire        mem_valid;
@@ -74,18 +72,12 @@ module chip_core #(
     // Trace/debug (can leave unconnected if unused)
     wire        trace_valid;
     wire [35:0] trace_data;
-    
-    // PCPI interface (tied off - not using external coprocessor)
+
+    logic        trap;
     logic        pcpi_valid;
     logic [31:0] pcpi_insn;
     logic [31:0] pcpi_rs1;
     logic [31:0] pcpi_rs2;
-    logic        pcpi_wr;
-    logic [31:0] pcpi_rd;
-    logic        pcpi_wait;
-    logic        pcpi_ready;
-
-    logic        trap;
 
     picorv32 #(
         .ENABLE_COUNTERS      (1),
@@ -157,7 +149,7 @@ module chip_core #(
 
         // Interrupts
         .irq         (32'b0),
-        .eoi         (),
+        .eoi         (/* verilator lint_off PINCONNECTEMPTY */),
 
         // Trace/debug
         .trace_valid (trace_valid),
@@ -183,8 +175,6 @@ module chip_core #(
     wire [7:0] gpio_dir;
 
     wire [7:0] cpu_id;
-
-    logic debug;
 
     sp_addr_handler u_sp_addr_handler (
     .clk_i           (clk_i),
@@ -364,9 +354,6 @@ cache_interface #(
 
         // trap
         bidir_out[TRAP_ID] = trap;
-
-        // debug
-        debug = bidir_data_i[DEBUG_ID];
 
         // serial
         req_i = bidir_data_i[REQ_I_ID];

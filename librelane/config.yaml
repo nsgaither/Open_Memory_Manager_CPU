@@ -75,6 +75,12 @@ CLOCK_PORT: clk_PAD
 CLOCK_NET: clk_pad/Y
 CLOCK_PERIOD: 40 # 25 MHz
 
+# Max fanout constraint (used in SDC, also suppresses GRT-0281 large fanout warnings)
+MAX_FANOUT_CONSTRAINT: 50
+
+# Wire length threshold (enables the wire length checker)
+WIRE_LENGTH_THRESHOLD: 500
+
 # Fix hold violations
 PL_RESIZER_HOLD_SLACK_MARGIN: 0.35
 GRT_RESIZER_HOLD_SLACK_MARGIN: 0.3
@@ -227,8 +233,8 @@ MACROS:
     instances:
       # Make sure to specify the SRAMs in pdn_cfg.tcl
       i_chip_core.u_cache_controller.cache_mem.u_cache_mem.tag.sram0:
-        location: [1000, 1000]
-        orientation: N
+        location: [1300, 500]
+        orientation: E
 
 # This is an alternative method compared to
 # specifying the power connections in the RTL

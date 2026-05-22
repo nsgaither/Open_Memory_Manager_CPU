@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 `default_nettype none
+`timescale 1ns/1ps
 
 `include "slot_defines.svh"
 
@@ -30,7 +31,7 @@ module chip_top #(
 );
 
     wire clk_PAD2CORE;
-    wire rst_n_PAD2CORE;
+    wire rst_n_PAD2CORE; /* verilator lint_off SYNCASYNCNET */
     
     wire [NUM_INPUT_PADS-1:0] input_PAD2CORE;
     wire [NUM_INPUT_PADS-1:0] input_CORE2PAD_PU;

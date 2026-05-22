@@ -7,8 +7,8 @@ module mem128x4
 
   input  logic        mem_valid_i,
   output logic        mem_ready_o,
-  input  logic [31:0] mem_addr_i,
-  input  logic [3:0]  mem_wdata_i,
+  input  logic [31:0] mem_addr_i, /* verilator lint_off UNUSEDSIGNAL */
+  input  logic [3:0]  mem_wdata_i, /* verilator lint_on UNUSEDSIGNAL */
   input  logic        mem_read_en_i,
 
   output logic [3:0]  mem_rdata_o,

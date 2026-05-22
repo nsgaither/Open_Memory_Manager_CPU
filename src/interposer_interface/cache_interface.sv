@@ -128,7 +128,7 @@ module cache_interface #(
         .serial_o (serial_o),
 
         .valid_i  (cache_valid_i),
-        .data_in  (t_packet[67:0]),
+        .data_in  ({4'b0, t_packet[67:0]}),
         .msg_type (t_packet[69:68]),
         .ready_o  (cache_ready_o)
     );
@@ -158,7 +158,7 @@ module cache_interface #(
     logic           bus_valid_d;
     logic           snoop_valid_d;
     
-    dcmd_1hot   full_dircmd_1h;
+    dcmd_1hot   full_dircmd_1h; /* verilator lint_off UNUSEDSIGNAL */ /* verilator lint_on UNUSEDSIGNAL */
 
     always_comb begin : decode_packet
         bus_valid_d = 1'b0;
@@ -199,7 +199,7 @@ module cache_interface #(
     assign receive_data_d = rpacket_full[35:4];
 
     // bus ack data interface
-    wire bus_ack_rready_i;
+    wire bus_ack_rready_i; /* verilator lint_off UNUSEDSIGNAL */ /* verilator lint_on UNUSEDSIGNAL */
     lossy_pipe_stage #(
         .WIDTH(35)
     ) bus_ack_pipe (
@@ -218,7 +218,7 @@ module cache_interface #(
     );
 
     // snoop data interface
-    wire snoop_rready_i;
+    wire snoop_rready_i; /* verilator lint_off UNUSEDSIGNAL */ /* verilator lint_on UNUSEDSIGNAL */
     lossy_pipe_stage #(
         .WIDTH(35)
     ) snoop_pipe (

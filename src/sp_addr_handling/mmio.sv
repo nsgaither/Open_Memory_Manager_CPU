@@ -6,9 +6,10 @@ module mmio (
 
     // interface from the addr decoder
     input logic [31:0] addr_i,
-    input logic [31:0] wr_data_i,
+    input logic [31:0] wr_data_i, /* verilator lint_off UNUSEDSIGNAL */
     input logic wr_en_i, // write enable
     output logic [31:0] rd_data_o,     // read data back to cpu
+    /* verilator lint_on UNUSEDSIGNAL */
 
     // physical connections to the serializer/pins
     output logic [7:0] gpio_pins_o, // data going out
