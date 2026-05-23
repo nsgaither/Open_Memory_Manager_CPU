@@ -233,7 +233,7 @@ MACROS:
     instances:
       # Make sure to specify the SRAMs in pdn_cfg.tcl
       i_chip_core.u_cache_controller.cache_mem.u_cache_mem.tag.sram0:
-        location: [1300, 500]
+        location: [1100, 500]
         orientation: E
 
 # This is an alternative method compared to
