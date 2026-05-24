@@ -45,6 +45,60 @@ module chip_core #(
     localparam SERIAL_I_START_ID = 2;
     localparam SERIAL_O_START_ID = 12;
     localparam GPIO_START_ID = 23;
+    //pad index definitions
+    localparam PAD_PASS_THRU_EN = 0;   // input_in[0] — pass_thru_en from PCB
+    localparam PAD_MISO         = 1;   // input_in[1] — flash MISO (always input)
+ 
+    localparam PAD_SCK          = 8;   // bidir[8]  — flash SCK
+    localparam PAD_MOSI         = 9;   // bidir[9]  — flash MOSI
+    localparam PAD_CSB          = 10;  // bidir[10] — flash CSB
+ 
+    // boot ctrl pad signals
+    wire pass_thru_en;
+    wire boot_sck;
+    wire boot_mosi;
+    wire boot_miso;
+    wire boot_csb;
+ 
+    assign pass_thru_en = input_in[PAD_PASS_THRU_EN];
+    assign boot_miso    = input_in[PAD_MISO];
+ 
+    // boot ctrl memory bus outputs
+    wire        boot_mem_valid;
+    wire [31:0] boot_mem_addr;
+    wire [31:0] boot_mem_wdata;
+    wire [3:0]  boot_mem_wstrb;
+    wire        boot_mem_instr;
+    wire        boot_done;
+    wire        cores_en;
+
+
+    housekeeping_top #(
+        .BOOT_SIZE      (512),
+        .SRAM_BASE_ADDR (32'h0000_0000)
+    ) i_housekeeping (
+        .clk_i          (clk),
+        .reset_ni       (rst_n),
+        .pass_thru_en_i (pass_thru_en),
+        .spi_sck_o      (boot_sck),
+        .spi_mosi_o     (boot_mosi),
+        .spi_miso_i     (boot_miso),
+        .flash_csb_o    (boot_csb),
+        .mem_valid_o    (boot_mem_valid),
+        .mem_addr_o     (boot_mem_addr),
+        .mem_wdata_o    (boot_mem_wdata),
+        .mem_wstrb_o    (boot_mem_wstrb),
+        .mem_instr_o    (boot_mem_instr),
+        .cores_en_o     (cores_en),
+        .boot_done_o    (boot_done)
+    );
+
+    // CPU is held in reset until boot_done via cpu_resetn.
+    // Its mem_* outputs will be 0/idle while in reset, so the mux below safely passes boot controller traffic during that window.
+    wire cpu_resetn;
+    assign cpu_resetn = rst_n && cores_en;
+
+
     
     // For cache TODO: no idea what these are yet
 
@@ -116,7 +170,7 @@ module chip_core #(
         .STACKADDR            (32'h0000_2000)
     ) pico_rv32_cpu (
         .clk         (clk_i),
-        .resetn      (rst_n),
+        .resetn      (cpu_resetn),
 
         .trap        (trap),
 
@@ -321,6 +375,53 @@ cache_interface #(
     
     // See here for usage: https://gf180mcu-pdk.readthedocs.io/en/latest/IPs/IO/gf180mcu_fd_io/digital.html
     
+    // Pad ring assignments
+    // Use logic intermediates so we can do per-bit overrides
+    logic [NUM_INPUT_PADS-1:0] input_pu_r, input_pd_r;
+    logic [NUM_BIDIR_PADS-1:0] bidir_out_r, bidir_oe_r, bidir_cs_r;
+    logic [NUM_BIDIR_PADS-1:0] bidir_sl_r,  bidir_ie_r, bidir_pu_r, bidir_pd_r;
+ 
+    assign input_pu = input_pu_r;
+    assign input_pd = input_pd_r;
+    assign bidir_out = bidir_out_r;
+    assign bidir_oe  = bidir_oe_r;
+    assign bidir_cs  = bidir_cs_r;
+    assign bidir_sl  = bidir_sl_r;
+    assign bidir_ie  = bidir_ie_r;
+    assign bidir_pu  = bidir_pu_r;
+    assign bidir_pd  = bidir_pd_r;
+    
+    always_comb begin
+        // Input pads: no pull-up or pull-down
+        input_pu_r = '0;
+        input_pd_r = '0;
+ 
+        // Bidir defaults: all driven low, output enabled, no pull
+        bidir_out_r = '0;
+        bidir_oe_r  = '1;
+        bidir_cs_r  = '0;
+        bidir_sl_r  = '0;
+        bidir_pu_r  = '0;
+        bidir_pd_r  = '0;
+        bidir_ie_r  = ~bidir_oe_r;
+ 
+        // Flash SPI pins — driven by boot controller.
+        // When pass_thru_en=1 the programmer drives them directly,
+        // so we tri-state our outputs.
+        bidir_out_r[PAD_SCK]  = boot_sck;
+        bidir_out_r[PAD_MOSI] = boot_mosi;
+        bidir_out_r[PAD_CSB]  = boot_csb;
+ 
+        bidir_oe_r[PAD_SCK]   = ~pass_thru_en;
+        bidir_oe_r[PAD_MOSI]  = ~pass_thru_en;
+        bidir_oe_r[PAD_CSB]   = ~pass_thru_en;
+ 
+        bidir_ie_r[PAD_SCK]   = pass_thru_en;
+        bidir_ie_r[PAD_MOSI]  = pass_thru_en;
+        bidir_ie_r[PAD_CSB]   = pass_thru_en;
+    end
+
+
     // Disable pull-up and pull-down for input
     assign input_pu = '0;
     assign input_pd = '0;
