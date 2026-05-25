@@ -4,8 +4,8 @@ meta:
   substituting_steps:
 
     # Disable KLayout DRC
-    KLayout.DRC: null
-    Checker.KLayoutDRC: null
+    #KLayout.DRC: null
+    #Checker.KLayoutDRC: null
 
     # Disable KLayout antenna check
     #KLayout.Antenna: null
@@ -17,13 +17,10 @@ meta:
 
     # Save time during development
     # Enable for sign-off
-    #OpenROAD.IRDropReport: null
+    OpenROAD.IRDropReport: null
     Magic.DRC: null
     Checker.MagicDRC: null
     #KLayout.XOR: null
-    #Magic.DRC: null
-    #Checker.MagicDRC: null
-    KLayout.XOR: null
     #Netgen.LVS: null
     #Checker.LVS: null
 

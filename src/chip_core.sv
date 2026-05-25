@@ -5,9 +5,9 @@
 `timescale 1ns/1ps
 
 module chip_core #(
-    // parameter NUM_INPUT_PADS,
-    // parameter NUM_ANALOG_PADS,
-    parameter NUM_BIDIR_PADS
+    parameter NUM_INPUT_PADS,
+    parameter NUM_BIDIR_PADS,
+    parameter NUM_ANALOG_PADS
     )(
     `ifdef USE_POWER_PINS
     inout  wire VDD,
@@ -17,11 +17,9 @@ module chip_core #(
     input  wire clk,       // clock
     input  wire rst_n,     // reset (active low)
     
-    // input  wire [NUM_INPUT_PADS-1:0] input_in /* verilator lint_off UNUSEDSIGNAL */,   // Input value
-    // output wire [NUM_INPUT_PADS-1:0] input_pu,   // Pull-up
-    // output wire [NUM_INPUT_PADS-1:0] input_pd,   // Pull-down
-
-    // inout  wire [NUM_ANALOG_PADS-1:0] analog,  // Analog
+    input  wire [NUM_INPUT_PADS-1:0] input_in /* verilator lint_off UNUSEDSIGNAL */,   // Input value
+    output wire [NUM_INPUT_PADS-1:0] input_pu,   // Pull-up
+    output wire [NUM_INPUT_PADS-1:0] input_pd,   // Pull-down
 
     input  wire [NUM_BIDIR_PADS-1:0] bidir_in,   // Input value
     output logic [NUM_BIDIR_PADS-1:0] bidir_out,  // Output value
@@ -30,7 +28,9 @@ module chip_core #(
     output logic [NUM_BIDIR_PADS-1:0] bidir_sl,   // Slew rate (0=fast, 1=slow)
     output logic [NUM_BIDIR_PADS-1:0] bidir_ie,   // Input enable
     output logic [NUM_BIDIR_PADS-1:0] bidir_pu,   // Pull-up
-    output logic [NUM_BIDIR_PADS-1:0] bidir_pd   // Pull-down
+    output logic [NUM_BIDIR_PADS-1:0] bidir_pd,   // Pull-down
+
+    inout  wire [NUM_ANALOG_PADS-1:0] analog  // Analog
 );
 
     // Serial Interface
@@ -372,58 +372,7 @@ cache_interface #(
     .serial_o       (serial_o)
 );
 
-    
     // See here for usage: https://gf180mcu-pdk.readthedocs.io/en/latest/IPs/IO/gf180mcu_fd_io/digital.html
-    
-    // // Disable pull-up and pull-down for input
-    // assign input_pu = '0;
-    // assign input_pd = '0;
-    // Pad ring assignments
-    // Use logic intermediates so we can do per-bit overrides
-    logic [NUM_INPUT_PADS-1:0] input_pu_r, input_pd_r;
-    logic [NUM_BIDIR_PADS-1:0] bidir_out_r, bidir_oe_r, bidir_cs_r;
-    logic [NUM_BIDIR_PADS-1:0] bidir_sl_r,  bidir_ie_r, bidir_pu_r, bidir_pd_r;
- 
-    assign input_pu = input_pu_r;
-    assign input_pd = input_pd_r;
-    assign bidir_out = bidir_out_r;
-    assign bidir_oe  = bidir_oe_r;
-    assign bidir_cs  = bidir_cs_r;
-    assign bidir_sl  = bidir_sl_r;
-    assign bidir_ie  = bidir_ie_r;
-    assign bidir_pu  = bidir_pu_r;
-    assign bidir_pd  = bidir_pd_r;
-    
-    always_comb begin
-        // Input pads: no pull-up or pull-down
-        input_pu_r = '0;
-        input_pd_r = '0;
- 
-        // Bidir defaults: all driven low, output enabled, no pull
-        bidir_out_r = '0;
-        bidir_oe_r  = '1;
-        bidir_cs_r  = '0;
-        bidir_sl_r  = '0;
-        bidir_pu_r  = '0;
-        bidir_pd_r  = '0;
-        bidir_ie_r  = ~bidir_oe_r;
- 
-        // Flash SPI pins — driven by boot controller.
-        // When pass_thru_en=1 the programmer drives them directly,
-        // so we tri-state our outputs.
-        bidir_out_r[PAD_SCK]  = boot_sck;
-        bidir_out_r[PAD_MOSI] = boot_mosi;
-        bidir_out_r[PAD_CSB]  = boot_csb;
- 
-        bidir_oe_r[PAD_SCK]   = ~pass_thru_en;
-        bidir_oe_r[PAD_MOSI]  = ~pass_thru_en;
-        bidir_oe_r[PAD_CSB]   = ~pass_thru_en;
- 
-        bidir_ie_r[PAD_SCK]   = pass_thru_en;
-        bidir_ie_r[PAD_MOSI]  = pass_thru_en;
-        bidir_ie_r[PAD_CSB]   = pass_thru_en;
-    end
-
 
     // Disable pull-up and pull-down for input
     assign input_pu = '0;
@@ -447,6 +396,15 @@ cache_interface #(
         bidir_oe[REQ_O_ID] = 1'b1;                     // req_o is output only
         bidir_oe[SERIAL_I_START_ID +: NUM_RPINS] = '0; // serial_i is input only
         bidir_oe[SERIAL_O_START_ID +: NUM_TPINS] = '1; // serial_o is output only
+
+        // Flash SPI pins are driven by the boot controller unless pass-through
+        // is enabled, in which case the external programmer drives them.
+        bidir_oe[PAD_SCK]  = ~pass_thru_en;
+        bidir_oe[PAD_MOSI] = ~pass_thru_en;
+        bidir_oe[PAD_CSB]  = ~pass_thru_en;
+        bidir_ie[PAD_SCK]  = pass_thru_en;
+        bidir_ie[PAD_MOSI] = pass_thru_en;
+        bidir_ie[PAD_CSB]  = pass_thru_en;
     end
 
     // bidirectional pad data routing
@@ -458,6 +416,11 @@ cache_interface #(
 
         // trap
         bidir_out[TRAP_ID] = trap;
+
+        // Flash SPI
+        bidir_out[PAD_SCK]  = boot_sck;
+        bidir_out[PAD_MOSI] = boot_mosi;
+        bidir_out[PAD_CSB]  = boot_csb;
 
         // serial
         req_i = bidir_data_i[REQ_I_ID];
