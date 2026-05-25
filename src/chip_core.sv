@@ -15,7 +15,7 @@ module chip_core #(
     input  wire clk,       // clock
     input  wire rst_n,     // reset (active low)
     
-    input  wire [NUM_BIDIR_PADS-1:0] bidir_in,   // Input value
+    input  wire [NUM_BIDIR_PADS-1:0] bidir_in,    // Input value
     output logic [NUM_BIDIR_PADS-1:0] bidir_out,  // Output value
     output logic [NUM_BIDIR_PADS-1:0] bidir_oe,   // Output enable
     output logic [NUM_BIDIR_PADS-1:0] bidir_cs,   // Input type (0=CMOS Buffer, 1=Schmitt Trigger)
@@ -145,7 +145,7 @@ module chip_core #(
         .STACKADDR            (32'h0000_2000)
     ) pico_rv32_cpu (
         .clk         (clk_i),
-        .resetn      (cpu_resetn),
+        .resetn      (rst_n),
 
         .trap        (trap),
 
@@ -206,147 +206,148 @@ module chip_core #(
     wire [7:0] cpu_id;
 
     sp_addr_handler u_sp_addr_handler (
-    .clk_i           (clk_i),
-    .rst_ni          (rst_n),
+        .clk_i           (clk_i),
+        .rst_ni          (rst_n),
 
-    // Interface from CPU (native picorv32)
-    .mem_valid       (mem_valid),
-    .mem_ready       (mem_ready),
-    .mem_addr        (mem_addr),
-    .mem_wdata       (mem_wdata),
-    .mem_wstrb       (mem_wstrb),
-    .mem_rdata       (mem_rdata),
+        // Interface from CPU (native picorv32)
+        .mem_valid       (mem_valid),
+        .mem_ready       (mem_ready),
+        .mem_addr        (mem_addr),
+        .mem_wdata       (mem_wdata),
+        .mem_wstrb       (mem_wstrb),
+        .mem_rdata       (mem_rdata),
 
-    // Downstream passthrough interface
-    .pass_mem_valid  (pass_mem_valid),
-    .pass_mem_ready  (pass_mem_ready),
-    .pass_mem_addr   (pass_mem_addr),
-    .pass_mem_wdata  (pass_mem_wdata),
-    .pass_mem_wstrb  (pass_mem_wstrb),
-    .pass_mem_rdata  (pass_mem_rdata),
+        // Downstream passthrough interface
+        .pass_mem_valid  (pass_mem_valid),
+        .pass_mem_ready  (pass_mem_ready),
+        .pass_mem_addr   (pass_mem_addr),
+        .pass_mem_wdata  (pass_mem_wdata),
+        .pass_mem_wstrb  (pass_mem_wstrb),
+        .pass_mem_rdata  (pass_mem_rdata),
 
-    // Flush special instruction
-    .flush_ready_i   (flush_ready),
-    .flush_addr_o    (flush_addr),
-    .flush_valid_o   (flush_valid),
+        // Flush special instruction
+        .flush_ready_i   (flush_ready),
+        .flush_addr_o    (flush_addr),
+        .flush_valid_o   (flush_valid),
 
-    // GPIO pin connections
-    .gpio_pins_o     (gpio_pins_o),
-    .gpio_pins_i     (gpio_pins_i),
-    .gpio_dir_o      (gpio_dir),
+        // GPIO pin connections
+        .gpio_pins_o     (gpio_pins_o),
+        .gpio_pins_i     (gpio_pins_i),
+        .gpio_dir_o      (gpio_dir),
 
-    // CPU ID
-    .cpu_id_i        (cpu_id)
-);
+        // CPU ID
+        .cpu_id_i        (cpu_id)
+    );
 
-// Cache Controller
-// sp addr handler -> this -> cache interposer
-//                     |
-//                     v
-//                   Cache
-wire        cache_valid;
-wire [31:0] cache_addr;
-wire [31:0] cache_data;
-wire [ 8:0] cache_cmd;
-wire        cache_ready;
+    // Cache Controller
+    // sp addr handler -> this -> cache interposer
+    //                     |
+    //                     v
+    //                   Cache
+    wire        cache_valid;
+    wire [31:0] cache_addr;
+    wire [31:0] cache_data;
+    wire [ 8:0] cache_cmd;
+    wire        cache_ready;
 
-wire        bus_valid;
-wire [31:0] bus_data;
-wire [ 2:0] bus_dircmd;
-wire        bus_ready;
+    wire        bus_valid;
+    wire [31:0] bus_data;
+    wire [ 2:0] bus_dircmd;
+    wire        bus_ready;
 
-wire        snoop_valid;
-wire [31:0] snoop_data;
-wire [ 2:0] snoop_dircmd;
-wire        snoop_ready;
+    wire        snoop_valid;
+    wire [31:0] snoop_data;
+    wire [ 2:0] snoop_dircmd;
+    wire        snoop_ready;
 
-cache_controller u_cache_controller (
-  .clk_i                 (clk_i),
-  .rst_ni                (rst_n),
+    cache_controller u_cache_controller (
+        .clk_i                 (clk_i),
+        .rst_ni                (rst_n),
 
-  .mem_valid_i           (pass_mem_valid),
-  .mem_instr_i           (mem_instr),
-  .mem_ready_o           (pass_mem_ready),
-  .mem_addr_i            (pass_mem_addr),
-  .mem_wdata_i           (pass_mem_wdata),
-  .mem_wstrb_i           (pass_mem_wstrb),
-  .mem_rdata_o           (pass_mem_rdata),
+        .mem_valid_i           (pass_mem_valid),
+        .mem_instr_i           (mem_instr),
+        .mem_ready_o           (pass_mem_ready),
+        .mem_addr_i            (pass_mem_addr),
+        .mem_wdata_i           (pass_mem_wdata),
+        .mem_wstrb_i           (pass_mem_wstrb),
+        .mem_rdata_o           (pass_mem_rdata),
 
-  .flush_valid_i         (flush_valid),
-  .flush_addr_i          (flush_addr),
-  .flush_ready_o         (flush_ready),
+        .flush_valid_i         (flush_valid),
+        .flush_addr_i          (flush_addr),
+        .flush_ready_o         (flush_ready),
 
-  .cache_valid_o         (cache_valid),
-  .cache_ready_i         (cache_ready),
-  .cache_addr_o          (cache_addr),
-  .cache_data_o          (cache_data),
-  .cache_cmd_o           (cache_cmd),
+        .cache_valid_o         (cache_valid),
+        .cache_ready_i         (cache_ready),
+        .cache_addr_o          (cache_addr),
+        .cache_data_o          (cache_data),
+        .cache_cmd_o           (cache_cmd),
 
-  .bus_valid_i           (bus_valid),
-  .bus_ready_o           (bus_ready),
-  .bus_data_i            (bus_data),
-  .bus_dircmd_i          (bus_dircmd),
+        .bus_valid_i           (bus_valid),
+        .bus_ready_o           (bus_ready),
+        .bus_data_i            (bus_data),
+        .bus_dircmd_i          (bus_dircmd),
 
-  .snoop_valid_i         (snoop_valid),
-  .snoop_ready_o         (snoop_ready),
-  .snoop_addr_i          (snoop_data),
-  .snoop_dircmd_i        (snoop_dircmd)
-  `ifdef USE_POWER_PINS
-  ,.VDD(VDD)
-  ,.VSS(VSS)
-  `endif
-);
+        .snoop_valid_i         (snoop_valid),
+        .snoop_ready_o         (snoop_ready),
+        .snoop_addr_i          (snoop_data),
+        .snoop_dircmd_i        (snoop_dircmd)
+        `ifdef USE_POWER_PINS
+        ,.VDD(VDD)
+        ,.VSS(VSS)
+        `endif
+    );
 
-// cache_interposer_interface
-// cache controller -> this -> IO pins
-wire                 rbusy;
+    // cache_interposer_interface
+    // cache controller -> this -> IO pins
+    wire                 rbusy;
 
-wire                 req_o;
-wire [NUM_TPINS-1:0] serial_o;
-logic                 req_i;
-logic [NUM_RPINS-1:0] serial_i;
+    wire                 req_o;
+    wire [NUM_TPINS-1:0] serial_o;
+    logic                 req_i;
+    logic [NUM_RPINS-1:0] serial_i;
 
-cache_interface #(
-    .NUM_TPINS (NUM_TPINS),
-    .NUM_RPINS (NUM_RPINS)
-) u_cache_interface (
-    .clk_i          (clk_i),
-    .rst_ni         (rst_n),
+    cache_interface #(
+        .NUM_TPINS (NUM_TPINS),
+        .NUM_RPINS (NUM_RPINS)
+    ) u_cache_interface (
+        .clk_i          (clk_i),
+        .rst_ni         (rst_n),
 
-    // UPSTREAM --------------------------------------
-    // Cache Send Ports
-    .cache_valid_i  (cache_valid),
-    .cache_addr_i   (cache_addr),
-    .cache_data_i   (cache_data),
-    .cache_cmd_i    (cache_cmd),
-    .cache_ready_o  (cache_ready),
+        // UPSTREAM --------------------------------------
+        // Cache Send Ports
+        .cache_valid_i  (cache_valid),
+        .cache_addr_i   (cache_addr),
+        .cache_data_i   (cache_data),
+        .cache_cmd_i    (cache_cmd),
+        .cache_ready_o  (cache_ready),
 
-    // Bus Ack ports
-    .bus_valid_o    (bus_valid),
-    .bus_data_o     (bus_data),
-    .bus_dircmd_o   (bus_dircmd),
-    .bus_ready_i    (bus_ready),
+        // Bus Ack ports
+        .bus_valid_o    (bus_valid),
+        .bus_data_o     (bus_data),
+        .bus_dircmd_o   (bus_dircmd),
+        .bus_ready_i    (bus_ready),
 
-    // Snoop Req ports
-    .snoop_valid_o  (snoop_valid),
-    .snoop_data_o   (snoop_data),
-    .snoop_dircmd_o (snoop_dircmd),
-    .snoop_ready_i  (snoop_ready),
+        // Snoop Req ports
+        .snoop_valid_o  (snoop_valid),
+        .snoop_data_o   (snoop_data),
+        .snoop_dircmd_o (snoop_dircmd),
+        .snoop_ready_i  (snoop_ready),
 
-    // busy
-    .rbusy_o        (rbusy),
+        // busy
+        .rbusy_o        (rbusy),
 
-    // other
-    .cpu_id_o       (cpu_id),
+        // other
+        .cpu_id_o       (cpu_id),
 
-    // DOWNSTREAM ------------------------------------
-    // wrapped serializer IO
-    .req_i          (req_i),
-    .serial_i       (serial_i),
-    .req_o          (req_o),
-    .serial_o       (serial_o)
-);
+        // DOWNSTREAM ------------------------------------
+        // wrapped serializer IO
+        .req_i          (req_i),
+        .serial_i       (serial_i),
+        .req_o          (req_o),
+        .serial_o       (serial_o)
+    );
 
+    
     // See here for usage: https://gf180mcu-pdk.readthedocs.io/en/latest/IPs/IO/gf180mcu_fd_io/digital.html
 
     // bidirectional pad control
