@@ -5,9 +5,9 @@
 `timescale 1ns/1ps
 
 module chip_core #(
-    parameter NUM_INPUT_PADS,
-    parameter NUM_BIDIR_PADS,
-    parameter NUM_ANALOG_PADS
+    // parameter NUM_INPUT_PADS,
+    // parameter NUM_ANALOG_PADS,
+    parameter NUM_BIDIR_PADS
     )(
     `ifdef USE_POWER_PINS
     inout  wire VDD,
@@ -17,9 +17,11 @@ module chip_core #(
     input  wire clk,       // clock
     input  wire rst_n,     // reset (active low)
     
-    input  wire [NUM_INPUT_PADS-1:0] input_in /* verilator lint_off UNUSEDSIGNAL */,   // Input value
-    output wire [NUM_INPUT_PADS-1:0] input_pu,   // Pull-up
-    output wire [NUM_INPUT_PADS-1:0] input_pd,   // Pull-down
+    // input  wire [NUM_INPUT_PADS-1:0] input_in /* verilator lint_off UNUSEDSIGNAL */,   // Input value
+    // output wire [NUM_INPUT_PADS-1:0] input_pu,   // Pull-up
+    // output wire [NUM_INPUT_PADS-1:0] input_pd,   // Pull-down
+
+    // inout  wire [NUM_ANALOG_PADS-1:0] analog,  // Analog
 
     input  wire [NUM_BIDIR_PADS-1:0] bidir_in,   // Input value
     output logic [NUM_BIDIR_PADS-1:0] bidir_out,  // Output value
@@ -28,9 +30,7 @@ module chip_core #(
     output logic [NUM_BIDIR_PADS-1:0] bidir_sl,   // Slew rate (0=fast, 1=slow)
     output logic [NUM_BIDIR_PADS-1:0] bidir_ie,   // Input enable
     output logic [NUM_BIDIR_PADS-1:0] bidir_pu,   // Pull-up
-    output logic [NUM_BIDIR_PADS-1:0] bidir_pd,   // Pull-down
-
-    inout  wire [NUM_ANALOG_PADS-1:0] analog  // Analog
+    output logic [NUM_BIDIR_PADS-1:0] bidir_pd   // Pull-down
 );
 
     // Serial Interface
@@ -375,6 +375,9 @@ cache_interface #(
     
     // See here for usage: https://gf180mcu-pdk.readthedocs.io/en/latest/IPs/IO/gf180mcu_fd_io/digital.html
     
+    // // Disable pull-up and pull-down for input
+    // assign input_pu = '0;
+    // assign input_pd = '0;
     // Pad ring assignments
     // Use logic intermediates so we can do per-bit overrides
     logic [NUM_INPUT_PADS-1:0] input_pu_r, input_pd_r;
