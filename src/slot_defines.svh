@@ -5,9 +5,7 @@
 `define NUM_DVSS_PADS 10
 
 // Signal pads
-`define NUM_INPUT_PADS 12
 `define NUM_BIDIR_PADS 40
-`define NUM_ANALOG_PADS 2
 
 `endif
 
@@ -18,9 +16,7 @@
 `define NUM_DVSS_PADS 8
 
 // Signal pads
-`define NUM_INPUT_PADS 4
 `define NUM_BIDIR_PADS 44
-`define NUM_ANALOG_PADS 6
 
 `endif
 
@@ -31,9 +27,7 @@
 `define NUM_DVSS_PADS 8
 
 // Signal pads
-`define NUM_INPUT_PADS 4
 `define NUM_BIDIR_PADS 46
-`define NUM_ANALOG_PADS 4
 
 `endif
 
@@ -44,8 +38,6 @@
 `define NUM_DVSS_PADS 3
 
 // Signal pads
-`define NUM_INPUT_PADS 0
 `define NUM_BIDIR_PADS 48
-`define NUM_ANALOG_PADS 0
 
 `endif

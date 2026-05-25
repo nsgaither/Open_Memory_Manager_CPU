@@ -12,8 +12,6 @@ module chip_top #(
     parameter NUM_DVSS_PADS = `NUM_DVSS_PADS,
 
     // Signal pads
-    // parameter NUM_INPUT_PADS = `NUM_INPUT_PADS,
-    // parameter NUM_ANALOG_PADS = `NUM_ANALOG_PADS,
     parameter NUM_BIDIR_PADS = `NUM_BIDIR_PADS
     )(
     `ifdef USE_POWER_PINS
@@ -24,19 +22,12 @@ module chip_top #(
     inout  wire clk_PAD,
     inout  wire rst_n_PAD,
 
-    // inout  wire [NUM_ANALOG_PADS-1:0] analog_PAD,
-    
-    // inout  wire [NUM_INPUT_PADS-1:0] input_PAD,
     inout  wire [NUM_BIDIR_PADS-1:0] bidir_PAD
 );
 
     wire clk_PAD2CORE;
     wire rst_n_PAD2CORE; /* verilator lint_off SYNCASYNCNET */
     
-    // wire [NUM_INPUT_PADS-1:0] input_PAD2CORE;
-    // wire [NUM_INPUT_PADS-1:0] input_CORE2PAD_PU;
-    // wire [NUM_INPUT_PADS-1:0] input_CORE2PAD_PD;
-
     wire [NUM_BIDIR_PADS-1:0] bidir_PAD2CORE;
     wire [NUM_BIDIR_PADS-1:0] bidir_CORE2PAD;
     wire [NUM_BIDIR_PADS-1:0] bidir_CORE2PAD_OE;
@@ -105,26 +96,6 @@ module chip_top #(
         .PD     (1'b0)
     );
 
-    // generate
-    // for (genvar i=0; i<NUM_INPUT_PADS; i++) begin : inputs
-    //     (* keep *)
-    //     gf180mcu_fd_io__in_c pad (
-    //         `ifdef USE_POWER_PINS
-    //         .DVDD   (VDD),
-    //         .DVSS   (VSS),
-    //         .VDD    (VDD),
-    //         .VSS    (VSS),
-    //         `endif
-        
-    //         .Y      (input_PAD2CORE[i]),
-    //         .PAD    (input_PAD[i]),
-            
-    //         .PU     (input_CORE2PAD_PU[i]),
-    //         .PD     (input_CORE2PAD_PD[i])
-    //     );
-    // end
-    // endgenerate
-
     generate
     for (genvar i=0; i<NUM_BIDIR_PADS; i++) begin : bidir
         (* keep *)
@@ -151,26 +122,9 @@ module chip_top #(
     end
     endgenerate
 
-    // generate
-    // for (genvar i=0; i<NUM_ANALOG_PADS; i++) begin : analog
-    //     (* keep *)
-    //     gf180mcu_fd_io__asig_5p0 pad (
-    //         `ifdef USE_POWER_PINS
-    //         .DVDD   (VDD),
-    //         .DVSS   (VSS),
-    //         .VDD    (VDD),
-    //         .VSS    (VSS),
-    //         `endif
-    //         .ASIG5V (analog_PAD[i])
-    //     );
-    // end
-    // endgenerate
-
     // Core design
 
     chip_core #(
-        // .NUM_INPUT_PADS  (NUM_INPUT_PADS),
-        // .NUM_ANALOG_PADS (NUM_ANALOG_PADS),
         .NUM_BIDIR_PADS  (NUM_BIDIR_PADS)
     ) i_chip_core (
         `ifdef USE_POWER_PINS
@@ -181,12 +135,6 @@ module chip_top #(
         .clk        (clk_PAD2CORE),
         .rst_n      (rst_n_PAD2CORE),
     
-        // .input_in   (input_PAD2CORE),
-        // .input_pu   (input_CORE2PAD_PU),
-        // .input_pd   (input_CORE2PAD_PD),
-
-        // .analog     (analog_PAD),
-
         .bidir_in   (bidir_PAD2CORE),
         .bidir_out  (bidir_CORE2PAD),
         .bidir_oe   (bidir_CORE2PAD_OE),

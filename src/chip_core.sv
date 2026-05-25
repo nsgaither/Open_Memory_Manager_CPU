@@ -5,9 +5,7 @@
 `timescale 1ns/1ps
 
 module chip_core #(
-    parameter NUM_INPUT_PADS,
-    parameter NUM_BIDIR_PADS,
-    parameter NUM_ANALOG_PADS
+    parameter NUM_BIDIR_PADS
     )(
     `ifdef USE_POWER_PINS
     inout  wire VDD,
@@ -17,10 +15,6 @@ module chip_core #(
     input  wire clk,       // clock
     input  wire rst_n,     // reset (active low)
     
-    input  wire [NUM_INPUT_PADS-1:0] input_in /* verilator lint_off UNUSEDSIGNAL */,   // Input value
-    output wire [NUM_INPUT_PADS-1:0] input_pu,   // Pull-up
-    output wire [NUM_INPUT_PADS-1:0] input_pd,   // Pull-down
-
     input  wire [NUM_BIDIR_PADS-1:0] bidir_in,   // Input value
     output logic [NUM_BIDIR_PADS-1:0] bidir_out,  // Output value
     output logic [NUM_BIDIR_PADS-1:0] bidir_oe,   // Output enable
@@ -28,40 +22,21 @@ module chip_core #(
     output logic [NUM_BIDIR_PADS-1:0] bidir_sl,   // Slew rate (0=fast, 1=slow)
     output logic [NUM_BIDIR_PADS-1:0] bidir_ie,   // Input enable
     output logic [NUM_BIDIR_PADS-1:0] bidir_pu,   // Pull-up
-    output logic [NUM_BIDIR_PADS-1:0] bidir_pd,   // Pull-down
-
-    inout  wire [NUM_ANALOG_PADS-1:0] analog  // Analog
+    output logic [NUM_BIDIR_PADS-1:0] bidir_pd    // Pull-down
 );
 
     // Serial Interface
     localparam NUM_TPINS = 9;
     localparam NUM_RPINS = 9;
 
-    // io pad indexes
-    localparam DEBUG_ID = 0;
-    localparam TRAP_ID = 22;
-    localparam REQ_I_ID = 11;
-    localparam REQ_O_ID = 21;
-    localparam SERIAL_I_START_ID = 2;
-    localparam SERIAL_O_START_ID = 12;
-    localparam GPIO_START_ID = 23;
-    //pad index definitions
-    localparam PAD_PASS_THRU_EN = 0;   // input_in[0] — pass_thru_en from PCB
-    localparam PAD_MISO         = 1;   // input_in[1] — flash MISO (always input)
- 
-    localparam PAD_SCK          = 8;   // bidir[8]  — flash SCK
-    localparam PAD_MOSI         = 9;   // bidir[9]  — flash MOSI
-    localparam PAD_CSB          = 10;  // bidir[10] — flash CSB
- 
-    // boot ctrl pad signals
-    wire pass_thru_en;
-    wire boot_sck;
-    wire boot_mosi;
-    wire boot_miso;
-    wire boot_csb;
- 
-    assign pass_thru_en = input_in[PAD_PASS_THRU_EN];
-    assign boot_miso    = input_in[PAD_MISO];
+    // I/O pad indexes for the 0p5x0p5 48-bidir pinout.
+    localparam DEBUG_ID          = 0;   // bidir[0]
+    localparam REQ_I_ID          = 11;  // bidir[11]
+    localparam REQ_O_ID          = 21;  // bidir[21]
+    localparam TRAP_ID           = 22;  // bidir[22]
+    localparam SERIAL_I_START_ID = 2;   // bidir[2]  through bidir[10]
+    localparam SERIAL_O_START_ID = 12;  // bidir[12] through bidir[20]
+    localparam GPIO_START_ID     = 23;  // bidir[23] through bidir[30]
  
     // boot ctrl memory bus outputs
     wire        boot_mem_valid;
@@ -79,11 +54,11 @@ module chip_core #(
     ) i_housekeeping (
         .clk_i          (clk),
         .reset_ni       (rst_n),
-        .pass_thru_en_i (pass_thru_en),
-        .spi_sck_o      (boot_sck),
-        .spi_mosi_o     (boot_mosi),
-        .spi_miso_i     (boot_miso),
-        .flash_csb_o    (boot_csb),
+        .pass_thru_en_i (1'b0),
+        .spi_sck_o      (),
+        .spi_mosi_o     (),
+        .spi_miso_i     (1'b0),
+        .flash_csb_o    (),
         .mem_valid_o    (boot_mem_valid),
         .mem_addr_o     (boot_mem_addr),
         .mem_wdata_o    (boot_mem_wdata),
@@ -374,17 +349,12 @@ cache_interface #(
 
     // See here for usage: https://gf180mcu-pdk.readthedocs.io/en/latest/IPs/IO/gf180mcu_fd_io/digital.html
 
-    // Disable pull-up and pull-down for input
-    assign input_pu = '0;
-    assign input_pd = '0;
-
     // bidirectional pad control
     always_comb begin : bidir_control
         // defaults
         bidir_oe = '0;
         bidir_cs = '0;
         bidir_sl = '0;
-        bidir_ie = ~bidir_oe;
         bidir_pu = '0;
         bidir_pd = '0;
 
@@ -396,15 +366,7 @@ cache_interface #(
         bidir_oe[REQ_O_ID] = 1'b1;                     // req_o is output only
         bidir_oe[SERIAL_I_START_ID +: NUM_RPINS] = '0; // serial_i is input only
         bidir_oe[SERIAL_O_START_ID +: NUM_TPINS] = '1; // serial_o is output only
-
-        // Flash SPI pins are driven by the boot controller unless pass-through
-        // is enabled, in which case the external programmer drives them.
-        bidir_oe[PAD_SCK]  = ~pass_thru_en;
-        bidir_oe[PAD_MOSI] = ~pass_thru_en;
-        bidir_oe[PAD_CSB]  = ~pass_thru_en;
-        bidir_ie[PAD_SCK]  = pass_thru_en;
-        bidir_ie[PAD_MOSI] = pass_thru_en;
-        bidir_ie[PAD_CSB]  = pass_thru_en;
+        bidir_ie = ~bidir_oe;
     end
 
     // bidirectional pad data routing
@@ -416,11 +378,6 @@ cache_interface #(
 
         // trap
         bidir_out[TRAP_ID] = trap;
-
-        // Flash SPI
-        bidir_out[PAD_SCK]  = boot_sck;
-        bidir_out[PAD_MOSI] = boot_mosi;
-        bidir_out[PAD_CSB]  = boot_csb;
 
         // serial
         req_i = bidir_data_i[REQ_I_ID];
