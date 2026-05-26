@@ -231,7 +231,7 @@ add_pdn_stripe \
     -spacing 0.28 \
     -pitch 50 \
     -starts_with GROUND \
-    -number_of_straps 7
+    -number_of_straps 9
 
 # Tag SRAM macro
 
@@ -268,4 +268,4 @@ add_pdn_stripe \
     -spacing 0.28 \
     -pitch 50 \
     -starts_with GROUND \
-    -number_of_straps 7
+    -number_of_straps 9
