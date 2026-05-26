@@ -3,10 +3,6 @@ meta:
   flow: Chip
   substituting_steps:
 
-    # Disable KLayout DRC
-    #KLayout.DRC: null
-    #Checker.KLayoutDRC: null
-
     # Disable KLayout antenna check
     #KLayout.Antenna: null
     #Checker.KLayoutAntenna: null
@@ -20,6 +16,8 @@ meta:
     OpenROAD.IRDropReport: null
     Magic.DRC: null
     Checker.MagicDRC: null
+    KLayout.DRC: null
+    Checker.KLayoutDRC: null
     #KLayout.XOR: null
     #Netgen.LVS: null
     #Checker.LVS: null
