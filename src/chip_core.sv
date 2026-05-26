@@ -1,6 +1,3 @@
-// SPDX-FileCopyrightText: © 2025 XXX Authors
-// SPDX-License-Identifier: Apache-2.0
-
 `default_nettype none
 `timescale 1ns/1ps
 
@@ -12,10 +9,10 @@ module chip_core #(
     inout  wire VSS,
     `endif
     
-    input  wire clk,       // clock
-    input  wire rst_n,     // reset (active low)
+    input  wire 					  clk,        // clock
+    input  wire 					  rst_n,      // reset (active low)
     
-    input  wire [NUM_BIDIR_PADS-1:0] bidir_in,    // Input value
+    input  wire  [NUM_BIDIR_PADS-1:0] bidir_in,   // Input value
     output logic [NUM_BIDIR_PADS-1:0] bidir_out,  // Output value
     output logic [NUM_BIDIR_PADS-1:0] bidir_oe,   // Output enable
     output logic [NUM_BIDIR_PADS-1:0] bidir_cs,   // Input type (0=CMOS Buffer, 1=Schmitt Trigger)
@@ -52,7 +49,7 @@ module chip_core #(
         .BOOT_SIZE      (512),
         .SRAM_BASE_ADDR (32'h0000_0000)
     ) i_housekeeping (
-        .clk_i          (clk),
+        .clk_i          (clk_i),
         .reset_ni       (rst_n),
         .pass_thru_en_i (1'b0),
         .spi_sck_o      (),
@@ -69,13 +66,10 @@ module chip_core #(
     );
 
     // CPU is held in reset until boot_done via cpu_resetn.
-    // Its mem_* outputs will be 0/idle while in reset, so the mux below safely passes boot controller traffic during that window.
+    // Its mem_* outputs stay idle while housekeeping owns boot.
     wire cpu_resetn;
-    assign cpu_resetn = rst_n && cores_en;
+    assign cpu_resetn = rst_n && cores_en && boot_done;
 
-
-    
-    // For cache TODO: no idea what these are yet
 
     // TODO: add DLL and other clock management if needed
     wire clk_i;
@@ -90,15 +84,15 @@ module chip_core #(
     wire [31:0] mem_wdata;
     wire [3:0]  mem_wstrb;
     wire [31:0] mem_rdata;
-    
-    // Lookahead interface (can be left unused)
+
+    // Optional PicoRV32 sideband interfaces are unused, but named here so the
+    // core instance has an explicit, complete port map.
     wire        mem_la_read;
     wire        mem_la_write;
     wire [31:0] mem_la_addr;
     wire [31:0] mem_la_wdata;
     wire [3:0]  mem_la_wstrb;
-    
-    // Trace/debug (can leave unconnected if unused)
+    wire [31:0] irq_eoi;
     wire        trace_valid;
     wire [35:0] trace_data;
 
@@ -145,7 +139,7 @@ module chip_core #(
         .STACKADDR            (32'h0000_2000)
     ) pico_rv32_cpu (
         .clk         (clk_i),
-        .resetn      (rst_n),
+        .resetn      (cpu_resetn),
 
         .trap        (trap),
 
@@ -159,7 +153,7 @@ module chip_core #(
         .mem_wstrb   (mem_wstrb),
         .mem_rdata   (mem_rdata),
 
-        // Lookahead (optional)
+        // Lookahead interface (unused)
         .mem_la_read  (mem_la_read),
         .mem_la_write (mem_la_write),
         .mem_la_addr  (mem_la_addr),
@@ -178,7 +172,7 @@ module chip_core #(
 
         // Interrupts
         .irq         (32'b0),
-        .eoi         (/* verilator lint_off PINCONNECTEMPTY */),
+        .eoi         (irq_eoi),
 
         // Trace/debug
         .trace_valid (trace_valid),
@@ -300,7 +294,6 @@ module chip_core #(
     // cache_interposer_interface
     // cache controller -> this -> IO pins
     wire                 rbusy;
-
     wire                 req_o;
     wire [NUM_TPINS-1:0] serial_o;
     logic                 req_i;
@@ -314,6 +307,7 @@ module chip_core #(
         .rst_ni         (rst_n),
 
         // UPSTREAM --------------------------------------
+        
         // Cache Send Ports
         .cache_valid_i  (cache_valid),
         .cache_addr_i   (cache_addr),
@@ -340,15 +334,13 @@ module chip_core #(
         .cpu_id_o       (cpu_id),
 
         // DOWNSTREAM ------------------------------------
+        
         // wrapped serializer IO
         .req_i          (req_i),
         .serial_i       (serial_i),
         .req_o          (req_o),
         .serial_o       (serial_o)
     );
-
-    
-    // See here for usage: https://gf180mcu-pdk.readthedocs.io/en/latest/IPs/IO/gf180mcu_fd_io/digital.html
 
     // bidirectional pad control
     always_comb begin : bidir_control
