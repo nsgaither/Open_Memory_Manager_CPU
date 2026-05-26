@@ -44,6 +44,9 @@ module chip_core #(
     wire        boot_done;
     wire        cores_en;
 
+    // TODO: add DLL and other clock management if needed
+    wire clk_i;
+    assign clk_i = clk;
 
     housekeeping_top #(
         .BOOT_SIZE      (512),
@@ -70,10 +73,6 @@ module chip_core #(
     wire cpu_resetn;
     assign cpu_resetn = rst_n && cores_en && boot_done;
 
-
-    // TODO: add DLL and other clock management if needed
-    wire clk_i;
-    assign clk_i = clk;
 
     // PicoRV32 memory interface
     wire        mem_valid;
