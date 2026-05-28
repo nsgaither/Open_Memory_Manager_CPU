@@ -14,10 +14,10 @@ meta:
     # Save time during development
     # Enable for sign-off
     #OpenROAD.IRDropReport: null
-    #Magic.DRC: null
-    #Checker.MagicDRC: null
-    #KLayout.DRC: null
-    #Checker.KLayoutDRC: null
+    Magic.DRC: null
+    Checker.MagicDRC: null
+    KLayout.DRC: null
+    Checker.KLayoutDRC: null
     #KLayout.XOR: null
     #Netgen.LVS: null
     #Checker.LVS: null
@@ -26,6 +26,7 @@ DESIGN_NAME: chip_top
 VERILOG_FILES:
 - dir::../src/chip_top.sv
 - dir::../src/chip_core.sv
+- dir::../src/clocking/digital_dll.sv
 - dir::../ip/picorv32/picorv32.v
 - dir::../src/mem_ctrl/cache_mem.sv
 - dir::../src/mem_ctrl/mem128x32.sv

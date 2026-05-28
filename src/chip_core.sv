@@ -2,7 +2,8 @@
 `timescale 1ns/1ps
 
 module chip_core #(
-    parameter NUM_BIDIR_PADS
+    parameter NUM_BIDIR_PADS,
+    parameter USE_DLL_CLOCK = 1'b0
     )(
     `ifdef USE_POWER_PINS
     inout  wire VDD,
@@ -44,9 +45,24 @@ module chip_core #(
     wire        boot_done;
     wire        cores_en;
 
-    // TODO: add DLL and other clock management if needed
     wire clk_i;
-    assign clk_i = clk;
+    wire dll_locked;
+    wire [3:0] dll_tap;
+
+    (* keep_hierarchy = "yes", dont_touch = "true" *)
+    digital_dll #(
+        .NUM_TAPS       (16),
+        .LOCK_COUNT_MAX (16),
+        .INITIAL_TAP    (8)
+    ) u_digital_dll (
+        .clk_ref_i (clk),
+        .rst_ni    (rst_n),
+        .enable_i  (1'b1),
+        .bypass_i  (!USE_DLL_CLOCK),
+        .clk_o     (clk_i),
+        .locked_o  (dll_locked),
+        .tap_o     (dll_tap)
+    );
 
     housekeeping_top #(
         .BOOT_SIZE      (512),

@@ -208,6 +208,7 @@ def chip_top_runner():
         sources += [
             proj_path / "../src/chip_top.sv",
             proj_path / "../src/chip_core.sv",
+            proj_path / "../src/clocking/digital_dll.sv",
             proj_path / "../src/housekeeping/housekeeping_top.sv",
             proj_path / "../src/housekeeping/boot_fsm.sv",
             proj_path / "../src/housekeeping/spi_engine.sv",

@@ -103,8 +103,12 @@ test-chip-top: ## Run chip_top cocotb testbench
 	cd cocotb; PDK_ROOT=${PDK_ROOT} PDK=${PDK} SLOT=${SLOT} python3 chip_top_tb.py
 .PHONY: test-chip-top
 
+test-digital-dll: ## Run digital DLL cocotb testbench
+	cd cocotb; PDK_ROOT=${PDK_ROOT} PDK=${PDK} SLOT=${SLOT} python3 digital_dll_tb.py
+.PHONY: test-digital-dll
+
 test-cocotb-clean: ## Clean cocotb build files
-	rm -rf cocotb/sim_build cocotb/__pycache__ cocotb/*.fst cocotb/*.vcd
+	rm -rf cocotb/sim_build* cocotb/__pycache__ cocotb/*.fst cocotb/*.vcd
 .PHONY: test-cocotb-clean
 .PHONY: test-cpu-clean
 
