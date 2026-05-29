@@ -26,7 +26,12 @@ REQ_I_PAD = 11
 SERIAL_O_START_PAD = 12
 REQ_O_PAD = 21
 TRAP_PAD = 22
+SCAN_MODE_PAD = 31
+SCAN_ENABLE_PAD = 32
+SCAN_IN_PAD = 33
+SCAN_OUT_PAD = 34
 NUM_SERIAL_PADS = 9
+SCAN_CHAIN_WIDTH = 128
 
 
 def _pad_drive(width, driven_bits=None):
@@ -190,6 +195,81 @@ async def test_serial_input_pad_path(dut):
     assert actual == pattern, f"serial_i expected 0x{pattern:x}, got 0x{actual:x}"
 
 
+@cocotb.test()
+async def test_scan_chain_shift_path(dut):
+    """Shift a known pattern through the DFT scan chain."""
+
+    if gl:
+        return
+
+    num_bidir_pads = await start_and_reset(dut)
+    core = dut.i_chip_core
+
+    dut.bidir_PAD.value = _pad_drive(
+        num_bidir_pads,
+        {
+            SCAN_MODE_PAD: 1,
+            SCAN_ENABLE_PAD: 1,
+            SCAN_IN_PAD: 0,
+        },
+    )
+    await Timer(2, unit="ns")
+
+    assert_vector_bit(core.bidir_oe, SCAN_MODE_PAD, 0, "scan_mode OE")
+    assert_vector_bit(core.bidir_oe, SCAN_ENABLE_PAD, 0, "scan_enable OE")
+    assert_vector_bit(core.bidir_oe, SCAN_IN_PAD, 0, "scan_in OE")
+    assert_vector_bit(core.bidir_oe, SCAN_OUT_PAD, 1, "scan_out OE")
+
+    bits_in = [((index * 5 + 1) >> 1) & 1 for index in range(SCAN_CHAIN_WIDTH + 8)]
+    bits_out = []
+
+    for bit in bits_in:
+        dut.bidir_PAD.value = _pad_drive(
+            num_bidir_pads,
+            {
+                SCAN_MODE_PAD: 1,
+                SCAN_ENABLE_PAD: 1,
+                SCAN_IN_PAD: bit,
+            },
+        )
+        await ClockCycles(dut.clk_PAD, 1)
+        bits_out.append(int(core.scan_out.value))
+
+    expected = [
+        0 if index < (SCAN_CHAIN_WIDTH - 1) else bits_in[index - (SCAN_CHAIN_WIDTH - 1)]
+        for index in range(len(bits_in))
+    ]
+
+    assert bits_out == expected, "scan_out did not match expected shifted pattern"
+
+
+@cocotb.test()
+async def test_scan_chain_capture_path(dut):
+    """Capture selected internal status bits into the DFT scan chain."""
+
+    if gl:
+        return
+
+    num_bidir_pads = await start_and_reset(dut)
+    core = dut.i_chip_core
+
+    dut.bidir_PAD.value = _pad_drive(
+        num_bidir_pads,
+        {
+            REQ_I_PAD: 1,
+            SCAN_MODE_PAD: 1,
+            SCAN_ENABLE_PAD: 0,
+            SCAN_IN_PAD: 0,
+        },
+    )
+    await Timer(2, unit="ns")
+    await ClockCycles(dut.clk_PAD, 3)
+    await Timer(1, unit="ns")
+
+    assert_vector_bit(core.scan_data, 91, 1, "captured req_i")
+    assert_vector_bit(core.scan_data, 127, 1, "captured scan_mode")
+
+
 def chip_top_runner():
     proj_path = Path(__file__).resolve().parent
 
@@ -208,6 +288,7 @@ def chip_top_runner():
         sources += [
             proj_path / "../src/chip_top.sv",
             proj_path / "../src/chip_core.sv",
+            proj_path / "../src/dft/scan_chain.sv",
             proj_path / "../src/clocking/digital_dll.sv",
             proj_path / "../src/housekeeping/housekeeping_top.sv",
             proj_path / "../src/housekeeping/boot_fsm.sv",
