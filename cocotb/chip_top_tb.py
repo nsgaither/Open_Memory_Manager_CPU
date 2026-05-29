@@ -233,14 +233,24 @@ async def test_scan_chain_shift_path(dut):
             },
         )
         await ClockCycles(dut.clk_PAD, 1)
+        await Timer(1, unit="ps")
         bits_out.append(int(core.scan_out.value))
 
     expected = [
-        0 if index < (SCAN_CHAIN_WIDTH - 1) else bits_in[index - (SCAN_CHAIN_WIDTH - 1)]
+        0 if index < SCAN_CHAIN_WIDTH else bits_in[index - SCAN_CHAIN_WIDTH]
         for index in range(len(bits_in))
     ]
 
-    assert bits_out == expected, "scan_out did not match expected shifted pattern"
+    if bits_out != expected:
+        first_mismatch = next(
+            index for index, (actual, wanted) in enumerate(zip(bits_out, expected))
+            if actual != wanted
+        )
+        raise AssertionError(
+            "scan_out did not match expected shifted pattern: "
+            f"first mismatch at bit {first_mismatch}, "
+            f"got {bits_out[first_mismatch]}, expected {expected[first_mismatch]}"
+        )
 
 
 @cocotb.test()
@@ -270,6 +280,29 @@ async def test_scan_chain_capture_path(dut):
     assert_vector_bit(core.scan_data, 127, 1, "captured scan_mode")
 
 
+@cocotb.test()
+async def test_cpu_reset_held_until_memory_ready(dut):
+    """CPU reset stays low until the cache SRAM clear window has elapsed."""
+
+    if gl:
+        return
+
+    await start_and_reset(dut)
+    core = dut.i_chip_core
+
+    assert_scalar(core.memory_ready, 0, "memory_ready immediately after reset")
+    assert_scalar(core.cpu_resetn, 0, "cpu_resetn immediately after reset")
+
+    for _ in range(520):
+        await ClockCycles(dut.clk_PAD, 1)
+        await Timer(1, unit="ps")
+        if int(core.memory_ready.value) == 1:
+            break
+
+    assert_scalar(core.memory_ready, 1, "memory_ready after SRAM clear")
+    assert_scalar(core.cpu_resetn, 1, "cpu_resetn after SRAM clear")
+
+
 def chip_top_runner():
     proj_path = Path(__file__).resolve().parent
 
@@ -290,9 +323,6 @@ def chip_top_runner():
             proj_path / "../src/chip_core.sv",
             proj_path / "../src/dft/scan_chain.sv",
             proj_path / "../src/clocking/digital_dll.sv",
-            proj_path / "../src/housekeeping/housekeeping_top.sv",
-            proj_path / "../src/housekeeping/boot_fsm.sv",
-            proj_path / "../src/housekeeping/spi_engine.sv",
             proj_path / "../ip/picorv32/picorv32.v",
             proj_path / "../src/sp_addr_handling/sp_addr_handler.sv",
             proj_path / "../src/sp_addr_handling/mmio.sv",
