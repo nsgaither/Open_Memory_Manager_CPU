@@ -48,64 +48,24 @@ module chip_core #(
     localparam DLL_LOCK_COUNT_MAX = 16;
     localparam DLL_INITIAL_TAP = 8;
     localparam DLL_TAP_WIDTH = (DLL_NUM_TAPS <= 2) ? 1 : $clog2(DLL_NUM_TAPS);
-    localparam DLL_LOCK_WIDTH =
-        (DLL_LOCK_COUNT_MAX <= 2) ? 1 : $clog2(DLL_LOCK_COUNT_MAX + 1);
-    localparam logic [DLL_TAP_WIDTH-1:0] DLL_TAP_MAX =
-        DLL_TAP_WIDTH'(DLL_NUM_TAPS - 1);
-    localparam logic [DLL_TAP_WIDTH-1:0] DLL_INITIAL_TAP_VALUE =
-        DLL_TAP_WIDTH'(DLL_INITIAL_TAP);
-    localparam logic [DLL_LOCK_WIDTH-1:0] DLL_LOCK_COUNT_MAX_VALUE =
-        DLL_LOCK_WIDTH'(DLL_LOCK_COUNT_MAX);
 
-    /* verilator lint_off UNOPTFLAT */
     wire clk_i;
-    wire [DLL_NUM_TAPS:0] dll_delay_tap;
-    wire dll_delayed_clk;
-    wire [DLL_TAP_WIDTH:0] dll_selected_tap;
-    logic dll_locked;
-    logic [DLL_TAP_WIDTH-1:0] dll_tap;
-    logic [DLL_LOCK_WIDTH-1:0] dll_lock_count_q;
+    (* keep = "true" *) logic dll_locked;
+    (* keep = "true" *) logic [DLL_TAP_WIDTH-1:0] dll_tap;
 
-    assign dll_delay_tap[0] = clk;
-
-    generate
-        for (genvar i = 0; i < DLL_NUM_TAPS; i++) begin : gen_dll_delay
-            (* keep = "true", dont_touch = "true" *) wire dll_inv_n;
-
-            assign dll_inv_n = ~dll_delay_tap[i];
-            assign dll_delay_tap[i+1] = ~dll_inv_n;
-        end
-    endgenerate
-
-    assign dll_selected_tap =
-        {1'b0, dll_tap} + {{DLL_TAP_WIDTH{1'b0}}, 1'b1};
-    assign dll_delayed_clk = dll_delay_tap[dll_selected_tap];
-    assign clk_i = dll_delayed_clk;
-
-    always_ff @(posedge clk or negedge rst_n) begin : dll_control
-        if (!rst_n) begin
-            dll_tap          <= DLL_INITIAL_TAP_VALUE;
-            dll_lock_count_q <= '0;
-            dll_locked       <= 1'b0;
-        end else begin
-            dll_locked <= 1'b0;
-
-            if (dll_delayed_clk && (dll_tap != DLL_TAP_MAX)) begin
-                dll_tap          <= dll_tap + 1'b1;
-                dll_lock_count_q <= '0;
-            end else if (!dll_delayed_clk && (dll_tap != '0)) begin
-                dll_tap          <= dll_tap - 1'b1;
-                dll_lock_count_q <= '0;
-            end else begin
-                if (dll_lock_count_q != DLL_LOCK_COUNT_MAX_VALUE) begin
-                    dll_lock_count_q <= dll_lock_count_q + 1'b1;
-                end
-                dll_locked <=
-                    (dll_lock_count_q >= (DLL_LOCK_COUNT_MAX_VALUE - 1'b1));
-            end
-        end
-    end
-    /* verilator lint_on UNOPTFLAT */
+    digital_dll #(
+        .NUM_TAPS       (DLL_NUM_TAPS),
+        .LOCK_COUNT_MAX (DLL_LOCK_COUNT_MAX),
+        .INITIAL_TAP    (DLL_INITIAL_TAP)
+    ) u_digital_dll (
+        .clk_ref_i (clk),
+        .rst_ni    (rst_n),
+        .enable_i  (1'b1),
+        .bypass_i  (1'b0),
+        .clk_o     (clk_i),
+        .locked_o  (dll_locked),
+        .tap_o     (dll_tap)
+    );
 
     housekeeping_top #(
         .BOOT_SIZE      (512),

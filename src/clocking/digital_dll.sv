@@ -29,11 +29,22 @@ module digital_dll #(
     localparam logic [LOCK_WIDTH-1:0] LOCK_COUNT_MAX_VALUE = LOCK_WIDTH'(LOCK_COUNT_MAX);
 
     wire [NUM_TAPS:0] delay_tap;
+    wire              delay_line_in;
     wire              delayed_clk;
+    wire              clk_mux;
     wire [TAP_WIDTH:0] selected_tap;
     logic [LOCK_WIDTH-1:0] lock_count_q;
 
-    assign delay_tap[0] = clk_ref_i;
+`ifdef __pnr__
+    gf180mcu_fd_sc_mcu7t5v0__buf_1 u_clk_delay_in_buf (
+        .I (clk_ref_i),
+        .Z (delay_line_in)
+    );
+`else
+    assign delay_line_in = clk_ref_i;
+`endif
+
+    assign delay_tap[0] = delay_line_in;
 
     generate
         for (genvar i = 0; i < NUM_TAPS; i++) begin : gen_delay
@@ -47,7 +58,17 @@ module digital_dll #(
     assign selected_tap = {1'b0, tap_o} + {{TAP_WIDTH{1'b0}}, 1'b1};
     assign delayed_clk = delay_tap[selected_tap];
 
-    assign clk_o = (enable_i && !bypass_i) ? delayed_clk : clk_ref_i;
+    assign clk_mux = (enable_i && !bypass_i) ? delayed_clk : clk_ref_i;
+
+`ifdef __pnr__
+    (* keep = "true", dont_touch = "true" *)
+    gf180mcu_fd_sc_mcu7t5v0__buf_1 u_clk_out_buf (
+        .I (clk_mux),
+        .Z (clk_o)
+    );
+`else
+    assign clk_o = clk_mux;
+`endif
 
     always_ff @(posedge clk_ref_i or negedge rst_ni) begin : dll_control
         if (!rst_ni) begin
@@ -89,8 +110,22 @@ module digital_dll_delay_cell (
 );
     (* keep = "true", dont_touch = "true" *) wire inv_n;
 
+`ifdef __pnr__
+    (* keep = "true", dont_touch = "true" *)
+    gf180mcu_fd_sc_mcu7t5v0__inv_1 u_inv_a (
+        .I  (in_i),
+        .ZN (inv_n)
+    );
+
+    (* keep = "true", dont_touch = "true" *)
+    gf180mcu_fd_sc_mcu7t5v0__inv_1 u_inv_b (
+        .I  (inv_n),
+        .ZN (out_o)
+    );
+`else
     assign inv_n = ~in_i;
     assign out_o = ~inv_n;
+`endif
 endmodule
 
 `default_nettype wire
