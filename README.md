@@ -96,8 +96,11 @@ Cocotb-based testbenches using Icarus Verilog:
 | `make sim` | RTL simulation of the full chip |
 | `make sim-gl` | Gate-level simulation (after `final/` populated) |
 | `make sim-view` | View waveforms in GTKWave |
-| `make test-cpu` | Standalone PicoRV32 simulation |
-| `make test-mem-ctrl` | Memory controller unit test |
+| `make test-chip-top` | Top-level pad, scan, and reset-gating tests |
+| `make test-digital-dll` | Digital DLL unit tests |
+| `make test-mem128x32` | Main data-memory controller tests |
+| `make test-mem-ctrl-512` | 512x32 memory-controller tests |
+| `make test-mem-ctrl-128x4` | Tag/state memory-controller tests |
 
 ### Padring-Only Build
 

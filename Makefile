@@ -70,7 +70,7 @@ sim: ## Run RTL simulation with cocotb
 	cd cocotb; PDK_ROOT=${PDK_ROOT} PDK=${PDK} SLOT=${SLOT} python3 chip_top_tb.py
 .PHONY: sim
 
-sim-gl: ## Run gate-level simulation with cocotb (after copy-final)
+sim-gl: ## Run gate-level simulation with cocotb (after final views are populated)
 	cd cocotb; GL=1 PDK_ROOT=${PDK_ROOT} PDK=${PDK} SLOT=${SLOT} python3 chip_top_tb.py
 .PHONY: sim-gl
 
@@ -78,26 +78,10 @@ sim-view: ## View simulation waveforms in GTKWave
 	gtkwave cocotb/sim_build/chip_top.fst
 .PHONY: sim-view
 
-render-image: ## Render an image from the final layout (after copy-final)
+render-image: ## Render an image from the final layout
 	mkdir -p img/
 	PDK_ROOT=${PDK_ROOT} PDK=${PDK} python3 scripts/lay2img.py final/gds/${TOP}.gds img/${TOP}.png --width 2048 --oversampling 4
-.PHONY: copy-final
-
-test-cpu: ## Run picorv32 CPU simulation test
-	@mkdir -p sim
-	cd sim && iverilog -o picorv32_sim.vvp -I../ip/picorv32 picorv32_sim_tb.v ../ip/picorv32/picorv32.v && vvp picorv32_sim.vvp
-.PHONY: test-cpu
-
-test-cpu-view: ## View CPU simulation waveforms
-	gtkwave sim/picorv32_sim.vcd
-.PHONY: test-cpu-view
-
-test-cpu-clean: ## Clean CPU simulation files
-	rm -f sim/*.vvp sim/*.vcd
-
-test-mem-ctrl: ## Run mem_ctrl_128x32 cocotb testbench
-	cd cocotb; PDK_ROOT=${PDK_ROOT} PDK=${PDK} python3 mem_ctrl_512x32_tb.py
-.PHONY: test-mem-ctrl
+.PHONY: render-image
 
 test-chip-top: ## Run chip_top cocotb testbench
 	cd cocotb; PDK_ROOT=${PDK_ROOT} PDK=${PDK} SLOT=${SLOT} python3 chip_top_tb.py
@@ -110,7 +94,6 @@ test-digital-dll: ## Run digital DLL cocotb testbench
 test-cocotb-clean: ## Clean cocotb build files
 	rm -rf cocotb/sim_build* cocotb/__pycache__ cocotb/*.fst cocotb/*.vcd
 .PHONY: test-cocotb-clean
-.PHONY: test-cpu-clean
 
 # ─── Cocotb testbench targets (following OMM pattern) ────────────────────────
 
