@@ -70,6 +70,9 @@
                 # Verification
                 cocotb
 
+                # Test runner
+                pytest
+
                 # For KLayout Python DRC runner
                 docopt
 
