@@ -41,11 +41,6 @@ module two_port_cache_mem #(
   output logic [STATE_W-1:0]    p1_rstate_o,
   output logic                  p1_valid_o,
   input  logic                  p1_ready_i
-
-  `ifdef USE_POWER_PINS
-  ,input wire VDD
-  ,input wire VSS
-  `endif
 );
 
   // ============================================================
@@ -85,8 +80,7 @@ module two_port_cache_mem #(
     grant_p1 = 0;
 
     if (!busy) begin
-      unique case ({p1_valid_i, p0_valid_i})
-        2'b00: ;
+      case ({p1_valid_i, p0_valid_i})
         2'b01: grant_p0 = 1;
         2'b10: grant_p1 = 1;
         2'b11: begin
@@ -230,10 +224,6 @@ module two_port_cache_mem #(
 
     .valid_o  (cm_valid_o),
     .ready_i  (cm_ready_i)
-    `ifdef USE_POWER_PINS
-    ,.VDD(VDD)
-    ,.VSS(VSS)
-    `endif
   );
 
 endmodule

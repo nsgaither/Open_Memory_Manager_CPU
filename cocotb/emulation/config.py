@@ -6,10 +6,10 @@ from typing import Final
 
 # Configrable
 ## memory sizes in btyes
-MAIN_MEM_SIZE_IN_WORDS: Final = 4096
+MAIN_MEM_SIZE_IN_WORDS: Final = 512
 ## cache configs
 CACHE_LINE_SIZE_IN_WORDS: Final = 1
-CACHE_MEM_SIZE_IN_WORDS: Final = 1024
+CACHE_MEM_SIZE_IN_WORDS: Final = 128
 
 
 # Calcs based on config

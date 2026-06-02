@@ -1,24 +1,19 @@
 `default_nettype none
 
-module mem128x4
+module mem_ctrl_128x4
 (
   input  logic        clk_i,
   input  logic        rst_ni,
 
   input  logic        mem_valid_i,
   output logic        mem_ready_o,
-  input  logic [31:0] mem_addr_i, /* verilator lint_off UNUSEDSIGNAL */
-  input  logic [3:0]  mem_wdata_i, /* verilator lint_on UNUSEDSIGNAL */
+  input  logic [31:0] mem_addr_i,
+  input  logic [3:0]  mem_wdata_i,
   input  logic        mem_read_en_i,
 
   output logic [3:0]  mem_rdata_o,
   output logic        mem_valid_o,
   input  logic        mem_ready_i
-
-  `ifdef USE_POWER_PINS
-	    ,input wire VDD //adding these for librelane
-	    ,input wire VSS
-  `endif
 );
 
   typedef enum logic [2:0] {
@@ -176,13 +171,9 @@ module mem128x4
     .WEN (sram_bit_mask),
     .A   (sram_addr),
     .D   (data_to_write),
-    .Q   (data_read_from_sram)
-    `ifdef USE_POWER_PINS
-       // verilator lint_off ASSIGNIN
-    ,.VDD(VDD)
-    ,.VSS(VSS)
-       // verilator lint_on ASSIGNIN
-    `endif
+    .Q   (data_read_from_sram),
+    .VDD (),
+    .VSS ()
   );
 
 endmodule

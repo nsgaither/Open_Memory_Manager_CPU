@@ -93,6 +93,7 @@ class CoherenceCmd(IntEnum):
     Note: Values are chosen to avoid conflicts (snoops start at 17)
     """
     # Cache-to-Directory commands (values 1-5)
+    NULL = 0
     BUS_RD = 1        # Read request (cache miss on read)
     BUS_RDX = 2       # Read-exclusive request (cache miss on write)
     BUS_UPGR = 4      # Upgrade request (cache hit on write in SHARED state)
