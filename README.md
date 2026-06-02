@@ -40,6 +40,7 @@ The core is a **PicoRV32** CPU with multiply/divide (RV32IM), backed by a custom
 | Block | Description |
 |---|---|
 | **PicoRV32** | Size-optimized RISC-V RV32I core with M extension (multiply/divide), native valid/ready memory interface |
+| **digital_dll** | Synthesizable bang-bang digital DLL for optional internal clock delay/phase control; bypassed by default |
 | **mem128x32** | Memory controller multiplexing 32-bit CPU accesses across 4 cycles to a single 512x8 SRAM macro (area-constrained) |
 | **mem128x4** | Tag SRAM controller backed by a 64x8 SRAM, storing 128 4-bit tag/state entries |
 | **cache_controller** | Stub for future coherent cache with directory-based coherence and snoop interface |
@@ -95,8 +96,11 @@ Cocotb-based testbenches using Icarus Verilog:
 | `make sim` | RTL simulation of the full chip |
 | `make sim-gl` | Gate-level simulation (after `final/` populated) |
 | `make sim-view` | View waveforms in GTKWave |
-| `make test-cpu` | Standalone PicoRV32 simulation |
-| `make test-mem-ctrl` | Memory controller unit test |
+| `make test-chip-top` | Top-level pad, scan, and reset-gating tests |
+| `make test-digital-dll` | Digital DLL unit tests |
+| `make test-mem128x32` | Main data-memory controller tests |
+| `make test-mem-ctrl-512` | 512x32 memory-controller tests |
+| `make test-mem-ctrl-128x4` | Tag/state memory-controller tests |
 
 ### Padring-Only Build
 
@@ -119,6 +123,7 @@ All RTL sources are in `src/`:
 
 - `chip_top.sv` — Top-level chip with pad ring instantiations
 - `chip_core.sv` — Core design instantiating CPU, memory controllers, and cache controller
+- `clocking/digital_dll.sv` — Optional digital DLL clock-management block
 - `cache_controller/cache_controller.sv` — Coherent cache placeholder
 - `mem_ctrl/mem128x32.sv` — Main memory controller (512x8 SRAM)
 - `mem_ctrl/mem128x4.sv` — Tag SRAM controller (64x8 SRAM)

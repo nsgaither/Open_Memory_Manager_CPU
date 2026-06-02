@@ -26,7 +26,12 @@ REQ_I_PAD = 11
 SERIAL_O_START_PAD = 12
 REQ_O_PAD = 21
 TRAP_PAD = 22
+SCAN_MODE_PAD = 31
+SCAN_ENABLE_PAD = 32
+SCAN_IN_PAD = 33
+SCAN_OUT_PAD = 34
 NUM_SERIAL_PADS = 9
+SCAN_CHAIN_WIDTH = 128
 
 
 def _pad_drive(width, driven_bits=None):
@@ -190,6 +195,114 @@ async def test_serial_input_pad_path(dut):
     assert actual == pattern, f"serial_i expected 0x{pattern:x}, got 0x{actual:x}"
 
 
+@cocotb.test()
+async def test_scan_chain_shift_path(dut):
+    """Shift a known pattern through the DFT scan chain."""
+
+    if gl:
+        return
+
+    num_bidir_pads = await start_and_reset(dut)
+    core = dut.i_chip_core
+
+    dut.bidir_PAD.value = _pad_drive(
+        num_bidir_pads,
+        {
+            SCAN_MODE_PAD: 1,
+            SCAN_ENABLE_PAD: 1,
+            SCAN_IN_PAD: 0,
+        },
+    )
+    await Timer(2, unit="ns")
+
+    assert_vector_bit(core.bidir_oe, SCAN_MODE_PAD, 0, "scan_mode OE")
+    assert_vector_bit(core.bidir_oe, SCAN_ENABLE_PAD, 0, "scan_enable OE")
+    assert_vector_bit(core.bidir_oe, SCAN_IN_PAD, 0, "scan_in OE")
+    assert_vector_bit(core.bidir_oe, SCAN_OUT_PAD, 1, "scan_out OE")
+
+    bits_in = [((index * 5 + 1) >> 1) & 1 for index in range(SCAN_CHAIN_WIDTH + 8)]
+    bits_out = []
+
+    for bit in bits_in:
+        dut.bidir_PAD.value = _pad_drive(
+            num_bidir_pads,
+            {
+                SCAN_MODE_PAD: 1,
+                SCAN_ENABLE_PAD: 1,
+                SCAN_IN_PAD: bit,
+            },
+        )
+        await ClockCycles(dut.clk_PAD, 1)
+        await Timer(1, unit="ps")
+        bits_out.append(int(core.scan_out.value))
+
+    expected = [
+        0 if index < SCAN_CHAIN_WIDTH else bits_in[index - SCAN_CHAIN_WIDTH]
+        for index in range(len(bits_in))
+    ]
+
+    if bits_out != expected:
+        first_mismatch = next(
+            index for index, (actual, wanted) in enumerate(zip(bits_out, expected))
+            if actual != wanted
+        )
+        raise AssertionError(
+            "scan_out did not match expected shifted pattern: "
+            f"first mismatch at bit {first_mismatch}, "
+            f"got {bits_out[first_mismatch]}, expected {expected[first_mismatch]}"
+        )
+
+
+@cocotb.test()
+async def test_scan_chain_capture_path(dut):
+    """Capture selected internal status bits into the DFT scan chain."""
+
+    if gl:
+        return
+
+    num_bidir_pads = await start_and_reset(dut)
+    core = dut.i_chip_core
+
+    dut.bidir_PAD.value = _pad_drive(
+        num_bidir_pads,
+        {
+            REQ_I_PAD: 1,
+            SCAN_MODE_PAD: 1,
+            SCAN_ENABLE_PAD: 0,
+            SCAN_IN_PAD: 0,
+        },
+    )
+    await Timer(2, unit="ns")
+    await ClockCycles(dut.clk_PAD, 3)
+    await Timer(1, unit="ns")
+
+    assert_vector_bit(core.scan_data, 91, 1, "captured req_i")
+    assert_vector_bit(core.scan_data, 127, 1, "captured scan_mode")
+
+
+@cocotb.test()
+async def test_cpu_reset_held_until_memory_ready(dut):
+    """CPU reset stays low until the cache SRAM clear window has elapsed."""
+
+    if gl:
+        return
+
+    await start_and_reset(dut)
+    core = dut.i_chip_core
+
+    assert_scalar(core.memory_ready, 0, "memory_ready immediately after reset")
+    assert_scalar(core.cpu_resetn, 0, "cpu_resetn immediately after reset")
+
+    for _ in range(520):
+        await ClockCycles(dut.clk_PAD, 1)
+        await Timer(1, unit="ps")
+        if int(core.memory_ready.value) == 1:
+            break
+
+    assert_scalar(core.memory_ready, 1, "memory_ready after SRAM clear")
+    assert_scalar(core.cpu_resetn, 1, "cpu_resetn after SRAM clear")
+
+
 def chip_top_runner():
     proj_path = Path(__file__).resolve().parent
 
@@ -208,9 +321,8 @@ def chip_top_runner():
         sources += [
             proj_path / "../src/chip_top.sv",
             proj_path / "../src/chip_core.sv",
-            proj_path / "../src/housekeeping/housekeeping_top.sv",
-            proj_path / "../src/housekeeping/boot_fsm.sv",
-            proj_path / "../src/housekeeping/spi_engine.sv",
+            proj_path / "../src/dft/scan_chain.sv",
+            proj_path / "../src/clocking/digital_dll.sv",
             proj_path / "../ip/picorv32/picorv32.v",
             proj_path / "../src/sp_addr_handling/sp_addr_handler.sv",
             proj_path / "../src/sp_addr_handling/mmio.sv",

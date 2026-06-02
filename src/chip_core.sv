@@ -34,44 +34,67 @@ module chip_core #(
     localparam SERIAL_I_START_ID = 2;   // bidir[2]  through bidir[10]
     localparam SERIAL_O_START_ID = 12;  // bidir[12] through bidir[20]
     localparam GPIO_START_ID     = 23;  // bidir[23] through bidir[30]
+    localparam SCAN_MODE_ID      = 31;  // bidir[31]
+    localparam SCAN_ENABLE_ID    = 32;  // bidir[32]
+    localparam SCAN_IN_ID        = 33;  // bidir[33]
+    localparam SCAN_OUT_ID       = 34;  // bidir[34]
+
+    wire scan_mode;
+    wire scan_enable;
+    wire scan_in;
+    wire scan_out;
+
+    assign scan_mode   = bidir_in[SCAN_MODE_ID];
+    assign scan_enable = bidir_in[SCAN_ENABLE_ID];
+    assign scan_in     = bidir_in[SCAN_IN_ID];
  
-    // boot ctrl memory bus outputs
-    wire        boot_mem_valid;
-    wire [31:0] boot_mem_addr;
-    wire [31:0] boot_mem_wdata;
-    wire [3:0]  boot_mem_wstrb;
-    wire        boot_mem_instr;
-    wire        boot_done;
-    wire        cores_en;
+    localparam DLL_NUM_TAPS = 16;
+    localparam DLL_LOCK_COUNT_MAX = 16;
+    localparam DLL_INITIAL_TAP = 8;
+    localparam DLL_TAP_WIDTH = (DLL_NUM_TAPS <= 2) ? 1 : $clog2(DLL_NUM_TAPS);
 
-    // TODO: add DLL and other clock management if needed
     wire clk_i;
-    assign clk_i = clk;
+    (* keep = "true" *) logic dll_locked;
+    (* keep = "true" *) logic [DLL_TAP_WIDTH-1:0] dll_tap;
 
-    housekeeping_top #(
-        .BOOT_SIZE      (512),
-        .SRAM_BASE_ADDR (32'h0000_0000)
-    ) i_housekeeping (
-        .clk_i          (clk_i),
-        .reset_ni       (rst_n),
-        .pass_thru_en_i (1'b0),
-        .spi_sck_o      (),
-        .spi_mosi_o     (),
-        .spi_miso_i     (1'b0),
-        .flash_csb_o    (),
-        .mem_valid_o    (boot_mem_valid),
-        .mem_addr_o     (boot_mem_addr),
-        .mem_wdata_o    (boot_mem_wdata),
-        .mem_wstrb_o    (boot_mem_wstrb),
-        .mem_instr_o    (boot_mem_instr),
-        .cores_en_o     (cores_en),
-        .boot_done_o    (boot_done)
+    digital_dll #(
+        .NUM_TAPS       (DLL_NUM_TAPS),
+        .LOCK_COUNT_MAX (DLL_LOCK_COUNT_MAX),
+        .INITIAL_TAP    (DLL_INITIAL_TAP)
+    ) u_digital_dll (
+        .clk_ref_i (clk),
+        .rst_ni    (rst_n),
+        .enable_i  (1'b1),
+        .bypass_i  (scan_mode),
+        .clk_o     (clk_i),
+        .locked_o  (dll_locked),
+        .tap_o     (dll_tap)
     );
 
-    // CPU is held in reset until boot_done via cpu_resetn.
-    // Its mem_* outputs stay idle while housekeeping owns boot.
+    // The cache SRAM wrappers clear themselves after reset. Hold the CPU in
+    // reset until the longest clear sequence, mem128x32, has reached IDLE.
+    localparam int MEM_INIT_CYCLES = 513; // RESET_SRAMS + 512 RESET_DATA cycles
+    localparam int MEM_INIT_COUNTER_WIDTH = $clog2(MEM_INIT_CYCLES + 1);
+    localparam logic [MEM_INIT_COUNTER_WIDTH-1:0] MEM_INIT_COUNT_MAX = MEM_INIT_CYCLES;
+
+    logic [MEM_INIT_COUNTER_WIDTH-1:0] mem_init_count;
+    wire memory_ready;
+    wire cores_en;
+
+    assign memory_ready = (mem_init_count == MEM_INIT_COUNT_MAX);
+    assign cores_en = memory_ready;
+
+    always_ff @(posedge clk_i or negedge rst_n) begin
+        if (!rst_n) begin
+            mem_init_count <= '0;
+        end else if (!memory_ready) begin
+            mem_init_count <= mem_init_count + 1'b1;
+        end
+    end
+
+    // CPU mem_* outputs stay idle while reset is held low.
     wire cpu_resetn;
-    assign cpu_resetn = rst_n && cores_en && boot_done;
+    assign cpu_resetn = rst_n && cores_en;
 
 
     // PicoRV32 memory interface
@@ -341,6 +364,58 @@ module chip_core #(
         .serial_o       (serial_o)
     );
 
+    localparam int SCAN_CHAIN_WIDTH = 128;
+    logic [SCAN_CHAIN_WIDTH-1:0] scan_capture_data;
+    wire  [SCAN_CHAIN_WIDTH-1:0] scan_data;
+
+    always_comb begin : scan_capture_mux
+        scan_capture_data = '0;
+
+        scan_capture_data[0]       = dll_locked;
+        scan_capture_data[4:1]     = dll_tap;
+        scan_capture_data[5]       = memory_ready;
+        scan_capture_data[6]       = cores_en;
+        scan_capture_data[7]       = cpu_resetn;
+        scan_capture_data[8]       = trap;
+        scan_capture_data[9]       = mem_valid;
+        scan_capture_data[10]      = mem_instr;
+        scan_capture_data[11]      = mem_ready;
+        scan_capture_data[43:12]   = mem_addr;
+        scan_capture_data[75:44]   = mem_wdata;
+        scan_capture_data[79:76]   = mem_wstrb;
+        scan_capture_data[80]      = pass_mem_valid;
+        scan_capture_data[81]      = pass_mem_ready;
+        scan_capture_data[82]      = flush_valid;
+        scan_capture_data[83]      = flush_ready;
+        scan_capture_data[84]      = cache_valid;
+        scan_capture_data[85]      = cache_ready;
+        scan_capture_data[86]      = bus_valid;
+        scan_capture_data[87]      = bus_ready;
+        scan_capture_data[88]      = snoop_valid;
+        scan_capture_data[89]      = snoop_ready;
+        scan_capture_data[90]      = rbusy;
+        scan_capture_data[91]      = req_i;
+        scan_capture_data[92]      = req_o;
+        scan_capture_data[101:93]  = serial_i;
+        scan_capture_data[110:102] = serial_o;
+        scan_capture_data[118:111] = gpio_pins_i;
+        scan_capture_data[126:119] = gpio_pins_o;
+        scan_capture_data[127]     = scan_mode;
+    end
+
+    scan_chain #(
+        .WIDTH (SCAN_CHAIN_WIDTH)
+    ) u_dft_scan_chain (
+        .clk_i         (clk_i),
+        .rst_ni        (rst_n),
+        .scan_mode_i   (scan_mode),
+        .scan_enable_i (scan_enable),
+        .scan_in_i     (scan_in),
+        .capture_i     (scan_capture_data),
+        .scan_out_o    (scan_out),
+        .scan_data_o   (scan_data)
+    );
+
     // bidirectional pad control
     always_comb begin : bidir_control
         // defaults
@@ -358,6 +433,13 @@ module chip_core #(
         bidir_oe[REQ_O_ID] = 1'b1;                     // req_o is output only
         bidir_oe[SERIAL_I_START_ID +: NUM_RPINS] = '0; // serial_i is input only
         bidir_oe[SERIAL_O_START_ID +: NUM_TPINS] = '1; // serial_o is output only
+        bidir_oe[SCAN_MODE_ID] = 1'b0;                  // scan_mode is input only
+        bidir_oe[SCAN_ENABLE_ID] = 1'b0;                // scan_enable is input only
+        bidir_oe[SCAN_IN_ID] = 1'b0;                    // scan_in is input only
+        bidir_oe[SCAN_OUT_ID] = scan_mode;              // scan_out drives only in scan mode
+        bidir_pd[SCAN_MODE_ID] = 1'b1;                  // default to functional mode if undriven
+        bidir_pd[SCAN_ENABLE_ID] = 1'b1;
+        bidir_pd[SCAN_IN_ID] = 1'b1;
         bidir_ie = ~bidir_oe;
     end
 
@@ -376,6 +458,7 @@ module chip_core #(
         serial_i = bidir_data_i[SERIAL_I_START_ID +: NUM_RPINS];
         bidir_out[REQ_O_ID] = req_o;
         bidir_out[SERIAL_O_START_ID +: NUM_TPINS] = serial_o;
+        bidir_out[SCAN_OUT_ID] = scan_out;
 
         // GPIO
         bidir_out[GPIO_START_ID +: 8] = gpio_pins_o;

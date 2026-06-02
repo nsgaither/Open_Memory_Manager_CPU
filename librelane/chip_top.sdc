@@ -19,8 +19,11 @@ if { [info exists ::env(CLOCK_PORT)] } {
 if { $::env(CLOCK_PORT) == $::env(CLOCK_NET) } {
     set port_args [get_ports $clock_port]
 } else {
-    # This should actually use CLOCK_PIN?
-    set port_args [get_pins [lindex $::env(CLOCK_NET) 0]]
+    set clock_selector [lindex $::env(CLOCK_NET) 0]
+    set port_args [get_pins -quiet $clock_selector]
+    if { [llength $port_args] == 0 } {
+        set port_args [get_nets -quiet $clock_selector]
+    }
 }
 
 puts "\[INFO] Using clock $clock_port…"
@@ -79,4 +82,3 @@ if { [info exists ::env(OPENLANE_SDC_IDEAL_CLOCKS)] && $::env(OPENLANE_SDC_IDEAL
 } else {
     set_propagated_clock [all_clocks]
 }
-

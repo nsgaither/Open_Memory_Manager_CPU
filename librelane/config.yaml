@@ -26,6 +26,8 @@ DESIGN_NAME: chip_top
 VERILOG_FILES:
 - dir::../src/chip_top.sv
 - dir::../src/chip_core.sv
+- dir::../src/dft/scan_chain.sv
+- dir::../src/clocking/digital_dll.sv
 - dir::../ip/picorv32/picorv32.v
 - dir::../src/mem_ctrl/cache_mem.sv
 - dir::../src/mem_ctrl/mem128x32.sv
@@ -42,9 +44,6 @@ VERILOG_FILES:
 - dir::../src/interposer_interface/tserializer.sv
 - dir::../src/sp_addr_handling/mmio.sv
 - dir::../src/sp_addr_handling/sp_addr_handler.sv
-- dir::../src/housekeeping/housekeeping_top.sv
-- dir::../src/housekeeping/boot_fsm.sv
-- dir::../src/housekeeping/spi_engine.sv
 
 # Enable plugin for better SystemVerilog support
 USE_SLANG: True
@@ -89,8 +88,12 @@ IGNORE_DISCONNECTED_MODULES:
 
 # Clock
 CLOCK_PORT: clk_PAD
-CLOCK_NET: clk_pad/Y
+CLOCK_NET: i_chip_core.u_digital_dll.u_clk_out_buf/Z
 CLOCK_PERIOD: 50 # 50ns = 20MHz
+
+# Keep the DLL delay chain physical: CTS starts after the DLL output clock net,
+# and resizer passes must not clone or resize delay-line cells/nets.
+RSZ_DONT_TOUCH_RX: ".*u_digital_dll\\.gen_delay.*"
 
 # Fix hold violations
 PL_RESIZER_HOLD_SLACK_MARGIN: 0.35
@@ -175,6 +178,8 @@ KLAYOUT_FILLER_OPTIONS:
 
 # Because we have multiple power pads for one power domain
 MAGIC_EXT_UNIQUE: notopports
+
+MACRO_PLACEMENT_CFG: dir::dll_macro_placement.cfg
 
 MACROS:
   gf180mcu_ws_ip__id:
