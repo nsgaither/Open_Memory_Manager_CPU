@@ -1,1 +1,1 @@
-from emulation.memory_v2 import MemoryController
+from .memory_v2 import MemoryController

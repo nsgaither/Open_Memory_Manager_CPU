@@ -9,13 +9,13 @@ import asyncio
 
 # hardware emulators
 from core import Core
-from memory_v2 import MemoryController
+from .memory_v2 import MemoryController
 from weighted_round_robin import WeightedRoundRobinArbiter
 from cache_v3 import CacheController
 from directory_v2 import DirectoryController
 
 # types
-from axi_request_types import axi_request
+from .axi_request_types import axi_request
 from testcase import test_case
 from typing import List, Optional
 
@@ -302,7 +302,7 @@ from dataclasses import dataclass
 
 # Data Types & Consts
 from typing import (Callable, Awaitable, Dict, List)
-from axi_request_types import (axi_and_coherence_request, axi_request)
+from .axi_request_types import (axi_and_coherence_request, axi_request)
 from msi_v2 import (MSIState, ProcessorEvent, SnoopEvent, CoherenceCmd, TransitionResult) 
 from config import ( OFFSET_WIDTH, INDEX_WIDTH, TAG_WIDTH, NUM_CACHE_LINES)
 
@@ -784,7 +784,7 @@ TAG_WIDTH: int = 32 - (INDEX_WIDTH + OFFSET_WIDTH)
 ================================================================================
 
 from typing import Callable, Optional, Awaitable
-from axi_request_types import axi_request
+from .axi_request_types import axi_request
 
 class Core:
 
@@ -863,7 +863,7 @@ from dataclasses import dataclass
 # types
 from typing import (Optional, Dict, Callable, Awaitable)
 from msi_v2 import (MSIState, CoherenceCmd)
-from axi_request_types import (axi_and_coherence_request, axi_request)
+from .axi_request_types import (axi_and_coherence_request, axi_request)
 from util import (axi_and_cohrenece_cmd_to_axi)
 
 # helper functions
@@ -1502,8 +1502,8 @@ asyncio.run(main())
 
 import asyncio
 import logging
-from axi_request_types import axi_request
-from memory_v2 import MemoryController
+from .axi_request_types import axi_request
+from .memory_v2 import MemoryController
 
 logging.basicConfig(level=logging.DEBUG, format='%(name)s [%(levelname)s] %(message)s')
 
@@ -1623,7 +1623,7 @@ if __name__ == "__main__":
 ================================================================================
 
 # types
-from axi_request_types import axi_request
+from .axi_request_types import axi_request
 
 class MemoryController:
     def __init__(self):
@@ -1698,7 +1698,7 @@ class MemoryController:
 import logging
 
 # types
-from axi_request_types import axi_request
+from .axi_request_types import axi_request
 
 BYTE_MASKS = [0x000000FF, 0x0000FF00, 0x00FF0000, 0xFF000000]
 
@@ -2102,7 +2102,7 @@ class test_case:
 # FILE: util.py
 ================================================================================
 
-from axi_request_types import (axi_request, axi_and_coherence_request)
+from .axi_request_types import (axi_request, axi_and_coherence_request)
 
 def apply_wstrb(old_value: int, new_value: int, wstrb: int) -> int:
     """
@@ -2155,7 +2155,7 @@ def axi_and_cohrenece_cmd_to_axi(to_cast: axi_and_coherence_request) -> axi_requ
 import asyncio
 
 # types
-from axi_request_types import (axi_request, axi_and_coherence_request)
+from .axi_request_types import (axi_request, axi_and_coherence_request)
 from typing import List, Callable, Optional, Awaitable
 
 # functions

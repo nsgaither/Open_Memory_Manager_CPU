@@ -1,4 +1,4 @@
-from axi_request import axi_request
+from .axi_request_types import axi_request
 from enum import Enum
 
 class SP_ADDR(Enum):

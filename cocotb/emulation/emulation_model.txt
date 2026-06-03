@@ -10,7 +10,7 @@ from cache_v2 import CacheController
 from directory_v2 import DirectoryController
 
 # types
-from axi_request import axi_request
+from .axi_request_types import axi_request
 from testcase import test_case
 from typing import List, Optional
 
@@ -328,7 +328,7 @@ from dataclasses import dataclass
 
 # Data Types
 from typing import (Callable, Awaitable, Dict)
-from axi_request import (axi_and_coherence_request, axi_request)
+from .axi_request_types import (axi_and_coherence_request, axi_request)
 from msi_v2 import (MSIState, ProcessorEvent, SnoopEvent, CoherenceCmd, TransitionResult) 
 
 # Functions
@@ -893,7 +893,7 @@ from dataclasses import dataclass
 
 # Data Types
 from typing import (Callable, Awaitable, Dict)
-from axi_request import (axi_and_coherence_request, axi_request)
+from .axi_request_types import (axi_and_coherence_request, axi_request)
 from msi_v2 import (MSIState, ProcessorEvent, SnoopEvent, CoherenceCmd, TransitionResult) 
 
 # Functions
@@ -1390,7 +1390,7 @@ class CacheController:
     #     # request.mem_ready = True  We shouldnt need this
     #     return request
 from typing import Callable, Optional, Awaitable
-from axi_request import axi_request
+from .axi_request_types import axi_request
 
 class Core:
 
@@ -1467,7 +1467,7 @@ from cache_v2 import CacheController
 from directory_v2 import DirectoryController
 
 # types
-from axi_request import axi_request
+from .axi_request_types import axi_request
 from testcase import test_case
 from typing import List, Optional
 
@@ -1722,7 +1722,7 @@ from dataclasses import dataclass
 # types
 from typing import (Optional, Dict, Callable, Awaitable)
 from msi_v2 import (MSIState, CoherenceCmd)
-from axi_request import (axi_and_coherence_request, axi_request)
+from .axi_request_types import (axi_and_coherence_request, axi_request)
 from util import (axi_and_cohrenece_cmd_to_axi)
 
 @dataclass
@@ -2334,7 +2334,7 @@ asyncio.run(main())
 
 
 # types
-from axi_request import axi_request
+from .axi_request_types import axi_request
 
 class MemoryController:
     def __init__(self):
@@ -2715,7 +2715,7 @@ class test_case:
     data: int
     wstb: int
 
-from axi_request import (axi_request, axi_and_coherence_request)
+from .axi_request_types import (axi_request, axi_and_coherence_request)
 
 def apply_wstrb(old_value: int, new_value: int, wstrb: int) -> int:
     """
@@ -2761,7 +2761,7 @@ def axi_and_cohrenece_cmd_to_axi(to_cast: axi_and_coherence_request) -> axi_requ
 import asyncio
 
 # types
-from axi_request import (axi_request, axi_and_coherence_request)
+from .axi_request_types import (axi_request, axi_and_coherence_request)
 from typing import List, Callable, Optional, Awaitable
 
 # functions
@@ -2922,7 +2922,7 @@ class WeightedRoundRobinArbiter:
         print("error ")
         raise Exception("abritation hit timeout")
 from typing import Callable, Optional, Awaitable
-from axi_request import axi_request
+from .axi_request_types import axi_request
 
 class Core:
 
@@ -2993,7 +2993,7 @@ from dataclasses import dataclass
 # types
 from typing import (Optional, Dict, Callable, Awaitable)
 from msi_v2 import (MSIState, CoherenceCmd)
-from axi_request import (axi_and_coherence_request, axi_request)
+from .axi_request_types import (axi_and_coherence_request, axi_request)
 from util import (axi_and_cohrenece_cmd_to_axi)
 
 @dataclass
@@ -3605,7 +3605,7 @@ asyncio.run(main())
 
 
 # types
-from .axi_request import axi_request
+from .axi_request_types import axi_request
 
 class MemoryController:
     def __init__(self):
@@ -3986,7 +3986,7 @@ class test_case:
     data: int
     wstb: int
 
-from axi_request import (axi_request, axi_and_coherence_request)
+from .axi_request_types import (axi_request, axi_and_coherence_request)
 
 def apply_wstrb(old_value: int, new_value: int, wstrb: int) -> int:
     """
@@ -4032,7 +4032,7 @@ def axi_and_cohrenece_cmd_to_axi(to_cast: axi_and_coherence_request) -> axi_requ
 import asyncio
 
 # types
-from axi_request import (axi_request, axi_and_coherence_request)
+from .axi_request_types import (axi_request, axi_and_coherence_request)
 from typing import List, Callable, Optional, Awaitable
 
 # functions
