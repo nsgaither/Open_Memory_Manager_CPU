@@ -1,0 +1,4194 @@
+# external 
+import copy
+import asyncio
+
+# hardware emulators
+from core import Core
+from memory import MemoryController
+from weighted_round_robin import WeightedRoundRobinArbiter
+from cache_v2 import CacheController
+from directory_v2 import DirectoryController
+
+# types
+from axi_request import axi_request
+from testcase import test_case
+from typing import List, Optional
+
+
+class CPU: 
+    def __init__(self, size: int, test_cases: List[test_case]) -> None:
+
+        # setup memory 
+        self.memory: MemoryController = MemoryController()
+
+        # setup directory
+        self.directory: DirectoryController = DirectoryController(size, self.memory.axi_handler)
+
+        # setup arbiter
+        self.arbiter: WeightedRoundRobinArbiter = WeightedRoundRobinArbiter(size, [1] * size, self.directory.axi_handler_for_arbiter)
+        
+        # setup caches
+        self.caches: List[CacheController] = [] 
+        for i in range(size):
+            cache_to_add: CacheController = CacheController(i, self.arbiter.axi_handler_arbiter)
+            self.caches.append(cache_to_add)
+            self.directory.register_cache(i, cache_to_add.axi_and_coherence_handler)
+
+        # num cores
+        self.num_cores: int = size
+        # state of those cores
+        self.finsihed_cores: int = 0
+
+        # arr of those cores
+        self.cores: List[Core] = []
+        for i in range(size):
+            self.cores.append(Core(i, self.caches[i].axi_handler_for_core))
+
+        # build work load for each of those cores
+        self.core_workloads: List[List[test_case]] = [[] for i in range(size)]
+        for i in range(0, len(test_cases), size):
+            for k in range(size):
+                self.core_workloads[k].append(test_cases[i+k])
+
+
+    async def core_worker_write(self, core_id: int, test_case_in: test_case, valid_testcase: bool) -> axi_request:  # try to write data
+        if valid_testcase:
+            return await self.cores[core_id].write(test_case_in.data_addr, test_case_in.data, test_case_in.wstb)
+        else:
+            return await self.cores[core_id].write_nothing()
+              
+
+    async def core_worker_read(self, core_id: int, test_case_in: test_case, valid_testcase: bool) -> axi_request:  # try to write data
+        if valid_testcase:
+            return await self.cores[core_id].read(test_case_in.data_addr)
+        else:
+            return await self.cores[core_id].read_nothing()
+              
+    def print_caches(self)->None:
+        print("=" * 70)
+        print("Cache States")
+        print("=" * 70)
+        for i in range(self.num_cores):
+            self.caches[i].dump_cache()
+
+
+    def empty_caches(self)->None:
+        print("=" * 70)
+        print("invalidate all of cache")
+        print("=" * 70)
+        for i in range(self.num_cores):
+            self.caches[i].flush_all()
+
+    
+    async def start_sim(self):
+
+        print("=" * 70)
+        print("Starting CPU Simulation")
+        print("=" * 70)
+        
+
+        print("=" * 70)
+        print("Writing Stuff")
+        print("=" * 70)
+        
+
+        # to keep workloads intact for later use
+        core_workloads_copy: List[List[test_case]] = copy.deepcopy(self.core_workloads)
+        
+        while any(core_workloads_copy):
+            tasks: List[asyncio.Task[axi_request]] = []        
+            for core_id in range(self.num_cores):
+                # check if test_case exists
+                valid_testcase: bool = False
+                core_testcase: test_case = test_case(-1, -1, -1)           
+                if len(core_workloads_copy[core_id]) > 0:
+                    core_testcase: test_case = core_workloads_copy[core_id][-1]           
+                    valid_testcase = True
+             
+            
+                tasks.append(
+                    asyncio.create_task(
+                        self.core_worker_write(core_id, core_testcase, valid_testcase),
+                        name=f"Core-{core_id}"
+                    )
+                
+                )
+
+            # wait for all them and pop ones that are done
+            cur_cycle_results: List[axi_request] = await asyncio.gather(*tasks)
+            for index, result in enumerate(cur_cycle_results):
+                if result.mem_ready:
+                    core_workloads_copy[index].pop()                        
+
+
+        self.print_caches()  
+        self.empty_caches()
+
+        print("=" * 70)
+        print("Reading Stuff Out")
+        print("=" * 70)
+        
+
+        # to keep workloads intact for later use
+        core_workloads_copy: List[List[test_case]] = copy.deepcopy(self.core_workloads)
+        
+        while any(core_workloads_copy):
+            tasks: List[asyncio.Task[axi_request]] = []        
+            for core_id in range(self.num_cores):
+                # check if test_case exists
+                valid_testcase: bool = False
+                core_testcase: test_case = test_case(-1, -1, -1)           
+                if len(core_workloads_copy[core_id]) > 0:
+                    core_testcase: test_case = core_workloads_copy[core_id][-1]           
+                    valid_testcase = True
+             
+            
+                tasks.append(
+                    asyncio.create_task(
+                        self.core_worker_read(core_id, core_testcase, valid_testcase),
+                        name=f"Core-{core_id}"
+                    )
+                
+                )
+
+            # wait for all them and pop ones that are done
+            cur_cycle_results: List[axi_request] = await asyncio.gather(*tasks)
+            for index, result in enumerate(cur_cycle_results):
+                if result.mem_ready:
+                    print(f" data at {result.mem_addr} is {result.mem_rdata}")
+                    core_workloads_copy[index].pop()                        
+
+            
+        print("=" * 70)
+        print("Reading Stuff Out again but from other core")
+        print("=" * 70)
+        
+
+        # to keep workloads intact for later use
+        core_workloads_copy: List[List[test_case]] = copy.deepcopy(self.core_workloads)
+        
+        while any(core_workloads_copy):
+            tasks: List[asyncio.Task[axi_request]] = []        
+            for core_id in range(self.num_cores):
+                # check if test_case exists
+                valid_testcase: bool = False
+                core_testcase: test_case = test_case(-1, -1, -1)           
+                if len(core_workloads_copy[core_id]) > 0:
+                    core_testcase: test_case = core_workloads_copy[core_id][-1]           
+                    valid_testcase = True
+             
+            
+                tasks.append(
+                    asyncio.create_task(
+                        self.core_worker_read(core_id, core_testcase, valid_testcase),
+                        name=f"Core-{core_id}"
+                    )
+                
+                )
+
+            # wait for all them and pop ones that are done
+            cur_cycle_results: List[axi_request] = await asyncio.gather(*tasks)
+            for index, result in enumerate(cur_cycle_results):
+                if result.mem_ready:
+                    print(f" data at {result.mem_addr} is {result.mem_rdata}")
+                    core_workloads_copy[index].pop()                        
+
+        print("=" * 70)
+        print("We Did it")
+        print("=" * 70)
+        
+
+        # loop until all worloads stack are empty
+        # while any(core_workloads_copy):
+        #     print("while loop start")
+        #     for index, coreworkload in enumerate(core_workloads_copy):
+        #         print(f"curr corr is {index}")
+        #         # if more tasks exist
+        #         if coreworkload: 
+        #             test_case: test_case = coreworkload[-1] # top of list
+
+        #             # try to write data
+        #             result_axi: axi_request = await self.cores[index].write(test_case.data_addr, test_case.data, test_case.wstb)
+
+
+        #             if result_axi is None:
+        #                 raise TypeError("results_axi is none")
+
+        #             # arbitrate gave core turn
+        #             if result_axi.mem_ready:
+        #                 core_workloads_copy.pop()                        
+
+        #             # arbitrate didnt give core turn yet, so keep task in stack
+
+        # print("all wrtie tasks done")
+                    
+                   
+
+
+
+
+
+        
+
+
+        # # atempt_num: int = 0
+
+        # # idle_request: axi_request = axi_request(False, False, False, 0, 0, 0, 0)
+        
+        # while True:
+        #     if workload:
+        #         test_case: test_case = workload[-1] # top of list
+
+        #         if result_axi is None:
+        #             raise TypeError("results_axi is none")
+
+        #         if result_axi.mem_ready:
+        #             workload.pop()                        
+        #         else:
+        #             # print(f"  Core {core_id}: ✗ Denied, will retry, currently on Attempt {atempt_num} ")
+        #             atempt_num += 1
+
+                    
+        #     else:
+        #         # print(f"Core {core_id}: Finished all tasks")
+        #         self.finsihed_cores += 1 
+
+        #         # while self.finsihed_cores != self.num_cores:
+        #             # result_axi = await self.arbiter.axi_handler_arbiter(idle_request, core_id)
+
+        #         # print(f"  Core {core_id}: All cores done, exiting")
+        #         break
+                               
+from dataclasses import dataclass
+from .msi_v2 import CoherenceCmd
+
+@dataclass
+class axi_request:
+
+    """
+    Axi Packet with Coherence commands
+    ------------------------------------------------------------------------
+    | mem_valid | mem_instr | mem_ready | mem_addr | mem_wdata | mem_wstrb |
+    |   1 bit   |   1 bit   |   1 bit   |  32 bit  |   32 bit  |   4 bit   |
+    ------------------------------------------------------------------------
+
+    Used for the following communications:
+        - cpu -> cache controller
+        - cache controller -> cache sram
+        - directory controller -> main sram memory
+    """
+
+    mem_valid: bool
+    mem_instr: bool
+    mem_ready: bool
+
+    mem_addr: int
+    mem_wdata: int 
+    mem_wstrb: int
+    mem_rdata: int
+
+
+@dataclass
+class axi_and_coherence_request:
+    """
+    Axi Packet with Coherence commands
+    --------------------------------------------------------------------------------------
+    | mem_valid | mem_instr | mem_ready | mem_addr | mem_wdata | mem_wstrb | CoherenceCmd |
+    |   1 bit   |   1 bit   |   1 bit   |  32 bit  |   32 bit  |   4 bit   |    3 bits    |
+    --------------------------------------------------------------------------------------
+
+    Used for the following communications:
+        - cache controolers -> directory system    
+
+
+    
+    """
+
+    # basic axi stuff
+    mem_valid: bool
+    mem_instr: bool
+    mem_ready: bool
+
+    mem_addr: int
+    mem_wdata_or_msi_payload: int 
+    mem_wstrb: int
+    mem_rdata: int
+
+    # extra data need for cache conhernce
+    coherence_cmd: CoherenceCmd
+    core_id: int
+
+
+
+
+
+
+# External 
+from dataclasses import dataclass
+
+# Data Types
+from typing import (Callable, Awaitable, Dict)
+from axi_request import (axi_and_coherence_request, axi_request)
+from msi_v2 import (MSIState, ProcessorEvent, SnoopEvent, CoherenceCmd, TransitionResult) 
+
+# Functions
+from msi_v2 import (on_processor_event, on_snoop_event)
+from util import (apply_wstrb)
+
+@dataclass
+class CacheLine:
+    """
+    Represents a single cache line with MSI state and data.
+    
+    Fields:
+        state: Current MSI state (INVALID, SHARED, or MODIFIED)
+        data: Cached data value (32-bit word)
+    
+    Notes:
+        - In a real cache, this would also include tag, valid bit, etc.
+        - This simplified version uses the address as an implicit tag
+        - Each address maps to its own CacheLine entry
+    """
+    state: MSIState = MSIState.INVALID  # Default: line is invalid
+    data: int = 0                       # Default: data is zero
+
+
+
+class CacheController:
+    """
+    Cache controller implementing MSI coherence protocol.
+    Handles processor requests and directory snoops.
+    Fully associative for simulation simplicity.
+    """
+
+    def __init__(self, core_id: int, directory_axi_handler: Callable[[axi_and_coherence_request], Awaitable[axi_request]]) -> None:
+        """
+        Create a cache controller for a single core.
+
+        Args:
+            core_id (int): Cache identifier.
+            directory_axi_handler (Callable): Directory request interface.
+        """
+
+        self.core_id: int = core_id
+        self.directory_port: Callable[[axi_and_coherence_request], Awaitable[axi_request]] = directory_axi_handler       
+
+        self.lines: Dict[int, CacheLine] = {}
+        # self.lines is a simplication in hadware the addr wont be directly mapped to Cache line it will more like this:  
+         
+        #        index
+        #          ↓
+        # +------------------+
+        # |   TAG SRAM       |
+        # | tag | state | V  |
+        # +------------------+
+        #          ↓ compare
+        # +------------------+
+        # |   DATA SRAM      |
+        # |   64B line       |
+        # +------------------+
+
+    def _line(self, addr: int) -> CacheLine:
+        """
+        Get or create the cache line for an address.
+
+        Args:
+            addr (int): address.
+        """
+
+        if addr not in self.lines:
+            self.lines[addr] = CacheLine()
+        return self.lines[addr]
+
+    
+    async def _send_dir_cmd(self, cmd: CoherenceCmd, addr: int, payload: int = 0) -> axi_request:
+        """
+        Send a coherence command to the directory and returns its response.
+
+        Args:
+            cmd (CohereneceCmd: 3 bits): address.
+            addr (32 bits): address of memory
+            payload (32 bits): Optional payload containing data to write to main memory
+
+        Returns:
+            Response data from directory
+
+        """
+
+        # build axi + conherence request        
+        req: axi_and_coherence_request = axi_and_coherence_request(
+            mem_valid = True,
+            mem_ready = False,
+            mem_instr = False,
+            mem_addr = addr,
+            mem_wdata_or_msi_payload = payload,
+            mem_wstrb = 0xF,  # All bytes valid
+            mem_rdata = 0,
+            coherence_cmd = cmd,
+            core_id = self.core_id
+        )
+
+        # print(req)
+        # Send request to directory and get response
+        resp: axi_request = await self.directory_port(req)
+        # print(resp)
+        
+        # Verify directory acknowledged
+        # if not resp.mem_ready:
+            # raise RuntimeError(f"directory did not acknowledge core {self.core_id}")
+        
+        # Return data from directory (relevant for BUS_RD, BUS_RDX)
+        return resp
+
+
+    async def _handle_cpu_read(self, request: axi_request) -> axi_request:
+        """
+        Handles CPU read request, takes cachlines current state and figure out next one using state machine provisioned in on_processor event 
+        
+        Args:
+            request: axi_request to read
+        
+        Returns:
+            a axi_request repsone with handshake complete (connected to core.py)
+        """
+
+        line: CacheLine = self._line(request.mem_addr)
+        
+        # Ask state machine: what do we do for a read in current state?
+        tr: TransitionResult = on_processor_event(line.state, ProcessorEvent.PR_RD)
+
+
+        # If cache miss (or other condition requiring coherence transaction)
+        if tr.issue_cmd is not None:
+            # Fetch data from directory/memory and update cache line
+            print("cache read miss")
+            line.data = (await self._send_dir_cmd(tr.issue_cmd, request.mem_addr)).mem_rdata
+            request.mem_rdata = line.data            
+
+        # we have data in cache so just pipe it straight through
+        else:
+            print("cache read hit")
+            request.mem_rdata = line.data
+        
+        request.mem_ready = True
+            
+        # Update cache line state based on state machine result
+        line.state = tr.next_state
+        
+        # Return data to CPU
+        return request 
+
+
+    async def _handle_cpu_write(self, request: axi_request) -> axi_request:
+
+        """
+        Handles CPU write request, takes cachlines current state and figure out next one using state machine provisioned in on_processor event 
+
+        Args:
+            request: axi_request to write
+        
+        Returns:
+            a axi_and_coherence_request repsone with handshake complete
+            ie mem_ready and valid are both high         
+
+        """
+
+        line: CacheLine = self._line(request.mem_addr)
+    
+        # Ask state machine: what do we do for a write in current state?
+        tr: TransitionResult = on_processor_event(line.state, ProcessorEvent.PR_WR)
+
+        # If we need exclusive access or need to fetch data
+        if tr.issue_cmd is not None:
+            dir_resp: axi_request = await self._send_dir_cmd(tr.issue_cmd, request.mem_addr)
+
+            # if dir_resp.mem_ready != True:
+            #     raise ValueError("directory response not right after read")
+
+        # Update state (will be MODIFIED after any write)
+        line.state = tr.next_state
+        
+        # Apply byte-level write to existing data
+        # This allows partial word updates (e.g., writing only 1 byte)
+        line.data = apply_wstrb(line.data, request.mem_wdata, request.mem_wstrb)
+        
+        # Return updated data
+        request.mem_ready = True
+        return request
+
+    def _handle_snoop(self, request: axi_and_coherence_request) -> axi_and_coherence_request:
+
+        """
+        Handle snoop message from directory.
+        
+        Snoops occur when ANOTHER cache issues a coherence transaction that
+        affects this cache's copy of the data. The directory sends snoop
+        messages to coordinate between caches.
+        
+        Args:
+            (pass in a axi_and_cohrence_request from it the following are used)
+                addr: Memory address being snooped
+                packed_cmd: Packed coherence command from directory
+        
+        Returns:
+            Flushed data (if MODIFIED and flush required), else 0        
+
+        """
+
+        line: CacheLine = self._line(request.mem_addr)
+
+
+        cmd: CoherenceCmd = request.coherence_cmd
+
+        # Note: requester and payload are currently unused but may be useful later
+        requester: int = request.core_id
+        payload: int = request.mem_rdata
+
+        # Map coherence command to snoop event
+        if cmd == int(CoherenceCmd.SNOOP_BUS_RD):
+            event = SnoopEvent.BUS_RD
+        elif cmd == int(CoherenceCmd.SNOOP_BUS_RDX):
+            event = SnoopEvent.BUS_RDX
+        elif cmd == int(CoherenceCmd.SNOOP_BUS_UPGR):
+            event = SnoopEvent.BUS_UPGR
+        else:
+            raise ValueError(f"unknown snoop cmd {cmd}")
+
+        # Ask state machine: how do we respond to this snoop?
+        tr: TransitionResult = on_snoop_event(line.state, event)
+        
+        # If flush requested, provide our dirty data
+        # Otherwise return 0 (no data needed)
+        request.mem_wdata_or_msi_payload = line.data if tr.flush else 0
+        
+        # Update state (may invalidate or downgrade to SHARED)
+        line.state = tr.next_state
+        
+        # Return flush data to directory
+        request.mem_ready = True
+        return request
+
+
+    def evict(self, addr: int) -> None:
+
+        """
+        Currently not used (our emualted cache has no limit)
+        
+        Evict a cache line (e.g., due to capacity miss in a real cache).
+
+        
+        When evicting a line, we must inform the directory and write back
+        dirty data if the line is MODIFIED.
+        
+        Args:
+            addr: Address to evict
+        
+        """
+
+        # Check if line exists in cache
+        if addr not in self.lines:
+            return
+
+        line = self.lines[addr]
+        
+        # Handle eviction based on state
+        if line.state == MSIState.MODIFIED:
+            # Dirty data must be written back
+            _ = self._send_dir_cmd(CoherenceCmd.EVICT_DIRTY, addr, line.data)
+        elif line.state == MSIState.SHARED:
+            # Clean data, just notify directory
+            _ = self._send_dir_cmd(CoherenceCmd.EVICT_CLEAN, addr)
+        # INVALID state: no action needed
+
+        # Mark line as invalid after eviction
+        line.state = MSIState.INVALID
+
+
+    async def handle_request(self, request):
+        """
+        Unified handler for:
+          - axi_request (CPU traffic)
+          - axi_and_coherence_request (Directory / snoop traffic)
+        """
+
+        # ---------------------------
+        # AXI CPU REQUEST
+        # ---------------------------
+        if isinstance(request, axi_request):
+
+            # Ignore invalid requests
+            if not request.mem_valid:
+                request.mem_ready = False
+                return request
+
+            # CPU read or write
+            if request.mem_wstrb == 0:
+                request = await self._handle_cpu_read(request)
+            else:
+                request = await self._handle_cpu_write(request)
+
+            request.mem_ready = True
+            return request
+
+        # ---------------------------
+        # AXI + COHERENCE REQUEST
+        # ---------------------------
+        elif isinstance(request, axi_and_coherence_request):
+
+            if not request.mem_valid:
+                request.mem_ready = False
+                return request
+
+            request = self._handle_snoop(request)
+            return request
+
+        # ---------------------------
+        # Unknown request type
+        # ---------------------------
+        else:
+            raise TypeError(f"Unsupported request type: {type(request)}")
+
+
+    
+    async def axi_handler_for_core(self, request: axi_request) -> axi_request:
+
+        """
+        Core's AXI request handler - routes requests to appropriate handlers.
+        This is the primary entry point for all communication with the cache and core.
+        
+        1. CPU Memory Traffic (axi_request):
+           - Read: mem_wstrb == 0
+           - Write: mem_wstrb != 0
+           Routes to: _cpu_read() or _cpu_write()
+        
+        Args:
+            request:
+            AXI request from CPU
+        
+        Returns:
+            AXI response with mem_ready=True and appropriate data to the core        
+
+        """
+        
+        # Ignore invalid requests
+        if not request.mem_valid:
+            request.mem_ready = False
+            return request
+
+        # CPU memory traffic: read or write
+        if request.mem_wstrb == 0:
+            # CPU read (write strobe = 0)
+            request = await self._handle_cpu_read(request)
+        else:
+            # CPU write (write strobe != 0)
+            request = await self._handle_cpu_write(request)
+
+        # Mark response as ready
+        request.mem_ready = True
+        return request
+
+
+    
+    async def axi_and_coherence_handler(self, request: axi_and_coherence_request ) -> axi_and_coherence_request:
+
+        """
+        Core's axi+coherence request handler - routes requests to appropriate handlers.
+
+        This is the primary entry point for all communication with the directory mainly just used for snoop requests.
+
+        Args:
+            AXI + Cohrence Cmd from directory
+
+        Returns:
+            AXI + Cohrence Cmd with mem_ready=True and appropriate data to the core        
+        """
+
+        # Coherence traffic: snoop from directory
+        
+        # Error Handling 
+        if not request.mem_valid:
+            request.mem_ready = False
+            return request
+
+        request = self._handle_snoop(request)
+        # request.mem_ready = True  We shouldnt need this
+        return request
+
+
+    def dump_cache(self) -> None:
+        if not self.lines:
+            print(f"  Cache{self.core_id}:  (empty)")
+            return
+
+        for addr, line in sorted(self.lines.items()):
+            print(
+                f"  Cache{self.core_id}:  addr=0x{addr:08X}| "
+                f" state={line.state.name:<8}|"
+                f" data=0x{line.data:08X}"
+            )
+
+    def flush_all(self) -> None:
+        for line in self.lines.values():
+            line.state = MSIState.INVALID
+
+
+    
+
+    # async def axi_handler(self, request: axi_request ) -> axi_request:
+
+    #     """
+    #     Core's AXI request handler - routes requests to appropriate handlers.
+    #     This is the primary entry point for all communication with the cache and core.
+        
+    #     1. CPU Memory Traffic (axi_request):
+    #        - Read: mem_wstrb == 0
+    #        - Write: mem_wstrb != 0
+    #        Routes to: _cpu_read() or _cpu_write()
+        
+    #     Args:
+    #         request:
+    #         AXI request from CPU
+        
+    #     Returns:
+    #         AXI response with mem_ready=True and appropriate data to the core        
+
+    #     """
+        
+    #     # Ignore invalid requests
+    #     if not request.mem_valid:
+    #         request.mem_ready = False
+    #         return request
+
+    #     # CPU memory traffic: read or write
+    #     if request.mem_wstrb == 0:
+    #         # CPU read (write strobe = 0)
+    #         request = await self._handle_cpu_read(request)
+    #     else:
+    #         # CPU write (write strobe != 0)
+    #         request = await self._handle_cpu_write(request)
+
+    #     # Mark response as ready
+    #     request.mem_ready = True
+    #     return request
+
+
+
+
+    # def axi_and_coherence_handler(self, request: axi_and_coherence_request ) -> axi_and_coherence_request:
+
+    #     """
+    #     Core's axi+coherence request handler - routes requests to appropriate handlers.
+
+    #     This is the primary entry point for all communication with the directory mainly just used for snoop requests.
+
+    #     Args:
+    #         AXI + Cohrence Cmd from directory
+
+    #     Returns:
+    #         AXI + Cohrence Cmd with mem_ready=True and appropriate data to the core        
+    #     """
+
+    #     # Coherence traffic: snoop from directory
+        
+    #     # Error Handling 
+    #     if not request.mem_valid:
+    #         request.mem_ready = False
+    #         return request
+
+    #     request = self._handle_snoop(request)
+    #     # request.mem_ready = True  We shouldnt need this
+    #     return request
+
+
+    # def axi_and_coherence_handler(self, request: axi_and_coherence_request ) -> axi_and_coherence_request:
+
+    #     """
+    #     Core's axi+coherence request handler - routes requests to appropriate handlers.
+
+    #     This is the primary entry point for all communication with the directory mainly just used for snoop requests.
+
+    #     Args:
+    #         AXI + Cohrence Cmd from directory
+
+    #     Returns:
+    #         AXI + Cohrence Cmd with mem_ready=True and appropriate data to the core        
+    #     """
+
+    #     # Coherence traffic: snoop from directory
+        
+    #     # Error Handling 
+    #     if not request.mem_valid:
+    #         request.mem_ready = False
+    #         return request
+
+    #     request = self._handle_snoop(request)
+    #     # request.mem_ready = True  We shouldnt need this
+    #     return request
+from dataclasses import dataclass
+from msi_v2 import CoherenceCmd
+
+@dataclass
+class axi_request:
+
+    """
+    Axi Packet with Coherence commands
+    ------------------------------------------------------------------------
+    | mem_valid | mem_instr | mem_ready | mem_addr | mem_wdata | mem_wstrb |
+    |   1 bit   |   1 bit   |   1 bit   |  32 bit  |   32 bit  |   4 bit   |
+    ------------------------------------------------------------------------
+
+    Used for the following communications:
+        - cpu -> cache controller
+        - cache controller -> cache sram
+        - directory controller -> main sram memory
+    """
+
+    mem_valid: bool
+    mem_instr: bool
+    mem_ready: bool
+
+    mem_addr: int
+    mem_wdata: int 
+    mem_wstrb: int
+    mem_rdata: int
+
+
+@dataclass
+class axi_and_coherence_request:
+    """
+    Axi Packet with Coherence commands
+    --------------------------------------------------------------------------------------
+    | mem_valid | mem_instr | mem_ready | mem_addr | mem_wdata | mem_wstrb | CoherenceCmd |
+    |   1 bit   |   1 bit   |   1 bit   |  32 bit  |   32 bit  |   4 bit   |    3 bits    |
+    --------------------------------------------------------------------------------------
+
+    Used for the following communications:
+        - cache controolers -> directory system    
+
+
+    
+    """
+
+    # basic axi stuff
+    mem_valid: bool
+    mem_instr: bool
+    mem_ready: bool
+
+    mem_addr: int
+    mem_wdata_or_msi_payload: int 
+    mem_wstrb: int
+    mem_rdata: int
+
+    # extra data need for cache conhernce
+    coherence_cmd: CoherenceCmd
+    core_id: int
+
+
+
+
+
+
+# External 
+from dataclasses import dataclass
+
+# Data Types
+from typing import (Callable, Awaitable, Dict)
+from axi_request import (axi_and_coherence_request, axi_request)
+from msi_v2 import (MSIState, ProcessorEvent, SnoopEvent, CoherenceCmd, TransitionResult) 
+
+# Functions
+from msi_v2 import (on_processor_event, on_snoop_event)
+from util import (apply_wstrb)
+
+@dataclass
+class CacheLine:
+    """
+    Represents a single cache line with MSI state and data.
+    
+    Fields:
+        state: Current MSI state (INVALID, SHARED, or MODIFIED)
+        data: Cached data value (32-bit word)
+    
+    Notes:
+        - In a real cache, this would also include tag, valid bit, etc.
+        - This simplified version uses the address as an implicit tag
+        - Each address maps to its own CacheLine entry
+    """
+    state: MSIState = MSIState.INVALID  # Default: line is invalid
+    data: int = 0                       # Default: data is zero
+
+
+
+class CacheController:
+    """
+    Cache controller implementing MSI coherence protocol.
+    Handles processor requests and directory snoops.
+    Fully associative for simulation simplicity.
+    """
+
+    def __init__(self, core_id: int, directory_axi_handler: Callable[[axi_and_coherence_request], Awaitable[axi_request]]) -> None:
+        """
+        Create a cache controller for a single core.
+
+        Args:
+            core_id (int): Cache identifier.
+            directory_axi_handler (Callable): Directory request interface.
+        """
+
+        self.core_id: int = core_id
+        self.directory_port: Callable[[axi_and_coherence_request], Awaitable[axi_request]] = directory_axi_handler       
+
+        self.lines: Dict[int, CacheLine] = {}
+        # self.lines is a simplication in hadware the addr wont be directly mapped to Cache line it will more like this:  
+         
+        #        index
+        #          ↓
+        # +------------------+
+        # |   TAG SRAM       |
+        # | tag | state | V  |
+        # +------------------+
+        #          ↓ compare
+        # +------------------+
+        # |   DATA SRAM      |
+        # |   64B line       |
+        # +------------------+
+
+    def _line(self, addr: int) -> CacheLine:
+        """
+        Get or create the cache line for an address.
+
+        Args:
+            addr (int): address.
+        """
+
+        if addr not in self.lines:
+            self.lines[addr] = CacheLine()
+        return self.lines[addr]
+
+    
+    async def _send_dir_cmd(self, cmd: CoherenceCmd, addr: int, payload: int = 0) -> axi_request:
+        """
+        Send a coherence command to the directory and returns its response.
+
+        Args:
+            cmd (CohereneceCmd: 3 bits): address.
+            addr (32 bits): address of memory
+            payload (32 bits): Optional payload containing data to write to main memory
+
+        Returns:
+            Response data from directory
+
+        """
+
+        # build axi + conherence request        
+        req: axi_and_coherence_request = axi_and_coherence_request(
+            mem_valid = True,
+            mem_ready = False,
+            mem_instr = False,
+            mem_addr = addr,
+            mem_wdata_or_msi_payload = payload,
+            mem_wstrb = 0xF,  # All bytes valid
+            mem_rdata = 0,
+            coherence_cmd = cmd,
+            core_id = self.core_id
+        )
+
+        # print(req)
+        # Send request to directory and get response
+        resp: axi_request = await self.directory_port(req)
+        # print(resp)
+        
+        # Verify directory acknowledged
+        # if not resp.mem_ready:
+            # raise RuntimeError(f"directory did not acknowledge core {self.core_id}")
+        
+        # Return data from directory (relevant for BUS_RD, BUS_RDX)
+        return resp
+
+
+    async def _handle_cpu_read(self, request: axi_request) -> axi_request:
+        """
+        Handles CPU read request, takes cachlines current state and figure out next one using state machine provisioned in on_processor event 
+        
+        Args:
+            request: axi_request to read
+        
+        Returns:
+            a axi_request repsone with handshake complete (connected to core.py)
+        """
+
+        line: CacheLine = self._line(request.mem_addr)
+        
+        # Ask state machine: what do we do for a read in current state?
+        tr: TransitionResult = on_processor_event(line.state, ProcessorEvent.PR_RD)
+
+
+        # If cache miss (or other condition requiring coherence transaction)
+        if tr.issue_cmd is not None:
+            # Fetch data from directory/memory and update cache line
+            print("cache read miss")
+            line.data = (await self._send_dir_cmd(tr.issue_cmd, request.mem_addr)).mem_rdata
+            request.mem_rdata = line.data            
+
+        # we have data in cache so just pipe it straight through
+        else:
+            print("cache read hit")
+            request.mem_rdata = line.data
+        
+        request.mem_ready = True
+            
+        # Update cache line state based on state machine result
+        line.state = tr.next_state
+        
+        # Return data to CPU
+        return request 
+
+
+    async def _handle_cpu_write(self, request: axi_request) -> axi_request:
+
+        """
+        Handles CPU write request, takes cachlines current state and figure out next one using state machine provisioned in on_processor event 
+
+        Args:
+            request: axi_request to write
+        
+        Returns:
+            a axi_and_coherence_request repsone with handshake complete
+            ie mem_ready and valid are both high         
+
+        """
+
+        line: CacheLine = self._line(request.mem_addr)
+    
+        # Ask state machine: what do we do for a write in current state?
+        tr: TransitionResult = on_processor_event(line.state, ProcessorEvent.PR_WR)
+
+        # If we need exclusive access or need to fetch data
+        if tr.issue_cmd is not None:
+            dir_resp: axi_request = await self._send_dir_cmd(tr.issue_cmd, request.mem_addr)
+
+            # if dir_resp.mem_ready != True:
+            #     raise ValueError("directory response not right after read")
+
+        # Update state (will be MODIFIED after any write)
+        line.state = tr.next_state
+        
+        # Apply byte-level write to existing data
+        # This allows partial word updates (e.g., writing only 1 byte)
+        line.data = apply_wstrb(line.data, request.mem_wdata, request.mem_wstrb)
+        
+        # Return updated data
+        request.mem_ready = True
+        return request
+
+    def _handle_snoop(self, request: axi_and_coherence_request) -> axi_and_coherence_request:
+
+        """
+        Handle snoop message from directory.
+        
+        Snoops occur when ANOTHER cache issues a coherence transaction that
+        affects this cache's copy of the data. The directory sends snoop
+        messages to coordinate between caches.
+        
+        Args:
+            (pass in a axi_and_cohrence_request from it the following are used)
+                addr: Memory address being snooped
+                packed_cmd: Packed coherence command from directory
+        
+        Returns:
+            Flushed data (if MODIFIED and flush required), else 0        
+
+        """
+
+        line: CacheLine = self._line(request.mem_addr)
+
+
+        cmd: CoherenceCmd = request.coherence_cmd
+
+        # Note: requester and payload are currently unused but may be useful later
+        requester: int = request.core_id
+        payload: int = request.mem_rdata
+
+        # Map coherence command to snoop event
+        if cmd == int(CoherenceCmd.SNOOP_BUS_RD):
+            event = SnoopEvent.BUS_RD
+        elif cmd == int(CoherenceCmd.SNOOP_BUS_RDX):
+            event = SnoopEvent.BUS_RDX
+        elif cmd == int(CoherenceCmd.SNOOP_BUS_UPGR):
+            event = SnoopEvent.BUS_UPGR
+        else:
+            raise ValueError(f"unknown snoop cmd {cmd}")
+
+        # Ask state machine: how do we respond to this snoop?
+        tr: TransitionResult = on_snoop_event(line.state, event)
+        
+        # If flush requested, provide our dirty data
+        # Otherwise return 0 (no data needed)
+        request.mem_wdata_or_msi_payload = line.data if tr.flush else 0
+        
+        # Update state (may invalidate or downgrade to SHARED)
+        line.state = tr.next_state
+        
+        # Return flush data to directory
+        request.mem_ready = True
+        return request
+
+
+    def evict(self, addr: int) -> None:
+
+        """
+        Currently not used (our emualted cache has no limit)
+        
+        Evict a cache line (e.g., due to capacity miss in a real cache).
+
+        
+        When evicting a line, we must inform the directory and write back
+        dirty data if the line is MODIFIED.
+        
+        Args:
+            addr: Address to evict
+        
+        """
+
+        # Check if line exists in cache
+        if addr not in self.lines:
+            return
+
+        line = self.lines[addr]
+        
+        # Handle eviction based on state
+        if line.state == MSIState.MODIFIED:
+            # Dirty data must be written back
+            _ = self._send_dir_cmd(CoherenceCmd.EVICT_DIRTY, addr, line.data)
+        elif line.state == MSIState.SHARED:
+            # Clean data, just notify directory
+            _ = self._send_dir_cmd(CoherenceCmd.EVICT_CLEAN, addr)
+        # INVALID state: no action needed
+
+        # Mark line as invalid after eviction
+        line.state = MSIState.INVALID
+
+
+    async def handle_request(self, request):
+        """
+        Unified handler for:
+          - axi_request (CPU traffic)
+          - axi_and_coherence_request (Directory / snoop traffic)
+        """
+
+        # ---------------------------
+        # AXI CPU REQUEST
+        # ---------------------------
+        if isinstance(request, axi_request):
+
+            # Ignore invalid requests
+            if not request.mem_valid:
+                request.mem_ready = False
+                return request
+
+            # CPU read or write
+            if request.mem_wstrb == 0:
+                request = await self._handle_cpu_read(request)
+            else:
+                request = await self._handle_cpu_write(request)
+
+            request.mem_ready = True
+            return request
+
+        # ---------------------------
+        # AXI + COHERENCE REQUEST
+        # ---------------------------
+        elif isinstance(request, axi_and_coherence_request):
+
+            if not request.mem_valid:
+                request.mem_ready = False
+                return request
+
+            request = self._handle_snoop(request)
+            return request
+
+        # ---------------------------
+        # Unknown request type
+        # ---------------------------
+        else:
+            raise TypeError(f"Unsupported request type: {type(request)}")
+
+
+    
+    async def axi_handler_for_core(self, request: axi_request) -> axi_request:
+
+        """
+        Core's AXI request handler - routes requests to appropriate handlers.
+        This is the primary entry point for all communication with the cache and core.
+        
+        1. CPU Memory Traffic (axi_request):
+           - Read: mem_wstrb == 0
+           - Write: mem_wstrb != 0
+           Routes to: _cpu_read() or _cpu_write()
+        
+        Args:
+            request:
+            AXI request from CPU
+        
+        Returns:
+            AXI response with mem_ready=True and appropriate data to the core        
+
+        """
+        
+        # Ignore invalid requests
+        if not request.mem_valid:
+            request.mem_ready = False
+            return request
+
+        # CPU memory traffic: read or write
+        if request.mem_wstrb == 0:
+            # CPU read (write strobe = 0)
+            request = await self._handle_cpu_read(request)
+        else:
+            # CPU write (write strobe != 0)
+            request = await self._handle_cpu_write(request)
+
+        # Mark response as ready
+        request.mem_ready = True
+        return request
+
+
+    
+    async def axi_and_coherence_handler(self, request: axi_and_coherence_request ) -> axi_and_coherence_request:
+
+        """
+        Core's axi+coherence request handler - routes requests to appropriate handlers.
+
+        This is the primary entry point for all communication with the directory mainly just used for snoop requests.
+
+        Args:
+            AXI + Cohrence Cmd from directory
+
+        Returns:
+            AXI + Cohrence Cmd with mem_ready=True and appropriate data to the core        
+        """
+
+        # Coherence traffic: snoop from directory
+        
+        # Error Handling 
+        if not request.mem_valid:
+            request.mem_ready = False
+            return request
+
+        request = self._handle_snoop(request)
+        # request.mem_ready = True  We shouldnt need this
+        return request
+
+
+    def dump_cache(self) -> None:
+        if not self.lines:
+            print(f"  Cache{self.core_id}:  (empty)")
+            return
+
+        for addr, line in sorted(self.lines.items()):
+            print(
+                f"  Cache{self.core_id}:  addr=0x{addr:08X}| "
+                f" state={line.state.name:<8}|"
+                f" data=0x{line.data:08X}"
+            )
+
+    def flush_all(self) -> None:
+        for line in self.lines.values():
+            line.state = MSIState.INVALID
+
+
+    
+
+    # async def axi_handler(self, request: axi_request ) -> axi_request:
+
+    #     """
+    #     Core's AXI request handler - routes requests to appropriate handlers.
+    #     This is the primary entry point for all communication with the cache and core.
+        
+    #     1. CPU Memory Traffic (axi_request):
+    #        - Read: mem_wstrb == 0
+    #        - Write: mem_wstrb != 0
+    #        Routes to: _cpu_read() or _cpu_write()
+        
+    #     Args:
+    #         request:
+    #         AXI request from CPU
+        
+    #     Returns:
+    #         AXI response with mem_ready=True and appropriate data to the core        
+
+    #     """
+        
+    #     # Ignore invalid requests
+    #     if not request.mem_valid:
+    #         request.mem_ready = False
+    #         return request
+
+    #     # CPU memory traffic: read or write
+    #     if request.mem_wstrb == 0:
+    #         # CPU read (write strobe = 0)
+    #         request = await self._handle_cpu_read(request)
+    #     else:
+    #         # CPU write (write strobe != 0)
+    #         request = await self._handle_cpu_write(request)
+
+    #     # Mark response as ready
+    #     request.mem_ready = True
+    #     return request
+
+
+
+
+    # def axi_and_coherence_handler(self, request: axi_and_coherence_request ) -> axi_and_coherence_request:
+
+    #     """
+    #     Core's axi+coherence request handler - routes requests to appropriate handlers.
+
+    #     This is the primary entry point for all communication with the directory mainly just used for snoop requests.
+
+    #     Args:
+    #         AXI + Cohrence Cmd from directory
+
+    #     Returns:
+    #         AXI + Cohrence Cmd with mem_ready=True and appropriate data to the core        
+    #     """
+
+    #     # Coherence traffic: snoop from directory
+        
+    #     # Error Handling 
+    #     if not request.mem_valid:
+    #         request.mem_ready = False
+    #         return request
+
+    #     request = self._handle_snoop(request)
+    #     # request.mem_ready = True  We shouldnt need this
+    #     return request
+
+
+    # def axi_and_coherence_handler(self, request: axi_and_coherence_request ) -> axi_and_coherence_request:
+
+    #     """
+    #     Core's axi+coherence request handler - routes requests to appropriate handlers.
+
+    #     This is the primary entry point for all communication with the directory mainly just used for snoop requests.
+
+    #     Args:
+    #         AXI + Cohrence Cmd from directory
+
+    #     Returns:
+    #         AXI + Cohrence Cmd with mem_ready=True and appropriate data to the core        
+    #     """
+
+    #     # Coherence traffic: snoop from directory
+        
+    #     # Error Handling 
+    #     if not request.mem_valid:
+    #         request.mem_ready = False
+    #         return request
+
+    #     request = self._handle_snoop(request)
+    #     # request.mem_ready = True  We shouldnt need this
+    #     return request
+from typing import Callable, Optional, Awaitable
+from axi_request import axi_request
+
+class Core:
+
+    def __init__(self, cpu_id: int, axi_handler: Callable[[axi_request], Awaitable[axi_request]]):
+        # cpe inentifier
+        self.cpu_id: int = cpu_id
+        # functions pointers to send and recive axi packets
+        self.axi_send_and_recieve: Callable[[axi_request], Awaitable[axi_request]] = axi_handler
+
+    # read functions
+    async def read(self, addr: int) -> axi_request:
+        read_request:axi_request = axi_request(
+            mem_valid= True,
+            mem_instr=False,
+            mem_ready=False,
+            mem_addr=addr,
+            mem_wdata=0,
+            mem_wstrb=0b0000,
+            mem_rdata=0)
+
+        return await self.axi_send_and_recieve(read_request)
+
+
+    async def read_nothing(self) -> axi_request:
+        read_request:axi_request = axi_request(
+            mem_valid= False,
+            mem_instr=False,
+            mem_ready=False,
+            mem_addr=0,
+            mem_wdata=0,
+            mem_wstrb=0b0000,
+            mem_rdata=0)
+
+        return await self.axi_send_and_recieve(read_request)
+    
+    # write functions
+    async def write(self, addr_in: int, data_in: int, wstb_in: int) -> axi_request:
+        write_request: axi_request = axi_request(
+            mem_valid= True,
+            mem_instr=False,
+            mem_ready=False,
+            mem_addr=addr_in,
+            mem_wdata=data_in,
+            mem_wstrb=wstb_in,
+            mem_rdata=0
+        ) 
+       
+        return await self.axi_send_and_recieve(write_request)
+
+
+    
+    async def write_nothing(self) -> axi_request:
+        write_request: axi_request = axi_request(
+            mem_valid= False,
+            mem_instr=False,
+            mem_ready=False,
+            mem_addr=0,
+            mem_wdata=0,
+            mem_wstrb=0,
+            mem_rdata=0
+        ) 
+      
+        return await self.axi_send_and_recieve(write_request)
+           
+# external 
+import copy
+import asyncio
+
+# hardware emulators
+from core import Core
+from memory import MemoryController
+from weighted_round_robin import WeightedRoundRobinArbiter
+from cache_v2 import CacheController
+from directory_v2 import DirectoryController
+
+# types
+from axi_request import axi_request
+from testcase import test_case
+from typing import List, Optional
+
+
+class CPU: 
+    def __init__(self, size: int, test_cases: List[test_case]) -> None:
+
+        # setup memory 
+        self.memory: MemoryController = MemoryController()
+
+        # setup directory
+        self.directory: DirectoryController = DirectoryController(size, self.memory.axi_handler)
+
+        # setup arbiter
+        self.arbiter: WeightedRoundRobinArbiter = WeightedRoundRobinArbiter(size, [1] * size, self.directory.axi_handler_for_arbiter)
+        
+        # setup caches
+        self.caches: List[CacheController] = [] 
+        for i in range(size):
+            cache_to_add: CacheController = CacheController(i, self.arbiter.axi_handler_arbiter)
+            self.caches.append(cache_to_add)
+            self.directory.register_cache(i, cache_to_add.axi_and_coherence_handler)
+
+        # num cores
+        self.num_cores: int = size
+        # state of those cores
+        self.finsihed_cores: int = 0
+
+        # arr of those cores
+        self.cores: List[Core] = []
+        for i in range(size):
+            self.cores.append(Core(i, self.caches[i].axi_handler_for_core))
+
+        # build work load for each of those cores
+        self.core_workloads: List[List[test_case]] = [[] for i in range(size)]
+        for i in range(0, len(test_cases), size):
+            for k in range(size):
+                self.core_workloads[k].append(test_cases[i+k])
+
+
+    async def core_worker_write(self, core_id: int, test_case_in: test_case, valid_testcase: bool) -> axi_request:  # try to write data
+        if valid_testcase:
+            return await self.cores[core_id].write(test_case_in.data_addr, test_case_in.data, test_case_in.wstb)
+        else:
+            return await self.cores[core_id].write_nothing()
+              
+
+    async def core_worker_read(self, core_id: int, test_case_in: test_case, valid_testcase: bool) -> axi_request:  # try to write data
+        if valid_testcase:
+            return await self.cores[core_id].read(test_case_in.data_addr)
+        else:
+            return await self.cores[core_id].read_nothing()
+              
+    def print_caches(self)->None:
+        print("=" * 70)
+        print("Cache States")
+        print("=" * 70)
+        for i in range(self.num_cores):
+            self.caches[i].dump_cache()
+
+
+    def empty_caches(self)->None:
+        print("=" * 70)
+        print("invalidate all of cache")
+        print("=" * 70)
+        for i in range(self.num_cores):
+            self.caches[i].flush_all()
+
+    
+    async def start_sim(self):
+
+        print("=" * 70)
+        print("Starting CPU Simulation")
+        print("=" * 70)
+        
+
+        print("=" * 70)
+        print("Writing Stuff")
+        print("=" * 70)
+        
+
+        # to keep workloads intact for later use
+        core_workloads_copy: List[List[test_case]] = copy.deepcopy(self.core_workloads)
+        
+        while any(core_workloads_copy):
+            tasks: List[asyncio.Task[axi_request]] = []        
+            for core_id in range(self.num_cores):
+                # check if test_case exists
+                valid_testcase: bool = False
+                core_testcase: test_case = test_case(-1, -1, -1)           
+                if len(core_workloads_copy[core_id]) > 0:
+                    core_testcase: test_case = core_workloads_copy[core_id][-1]           
+                    valid_testcase = True
+             
+            
+                tasks.append(
+                    asyncio.create_task(
+                        self.core_worker_write(core_id, core_testcase, valid_testcase),
+                        name=f"Core-{core_id}"
+                    )
+                
+                )
+
+            # wait for all them and pop ones that are done
+            cur_cycle_results: List[axi_request] = await asyncio.gather(*tasks)
+            for index, result in enumerate(cur_cycle_results):
+                if result.mem_ready:
+                    core_workloads_copy[index].pop()                        
+
+
+        self.print_caches()  
+        self.empty_caches()
+
+        print("=" * 70)
+        print("Reading Stuff Out")
+        print("=" * 70)
+        
+
+        # to keep workloads intact for later use
+        core_workloads_copy: List[List[test_case]] = copy.deepcopy(self.core_workloads)
+        
+        while any(core_workloads_copy):
+            tasks: List[asyncio.Task[axi_request]] = []        
+            for core_id in range(self.num_cores):
+                # check if test_case exists
+                valid_testcase: bool = False
+                core_testcase: test_case = test_case(-1, -1, -1)           
+                if len(core_workloads_copy[core_id]) > 0:
+                    core_testcase: test_case = core_workloads_copy[core_id][-1]           
+                    valid_testcase = True
+             
+            
+                tasks.append(
+                    asyncio.create_task(
+                        self.core_worker_read(core_id, core_testcase, valid_testcase),
+                        name=f"Core-{core_id}"
+                    )
+                
+                )
+
+            # wait for all them and pop ones that are done
+            cur_cycle_results: List[axi_request] = await asyncio.gather(*tasks)
+            for index, result in enumerate(cur_cycle_results):
+                if result.mem_ready:
+                    print(f" data at {result.mem_addr} is {result.mem_rdata}")
+                    core_workloads_copy[index].pop()                        
+
+            
+        print("=" * 70)
+        print("Reading Stuff Out again but from other core")
+        print("=" * 70)
+        
+
+        # to keep workloads intact for later use
+        core_workloads_copy: List[List[test_case]] = copy.deepcopy(self.core_workloads)
+        
+        while any(core_workloads_copy):
+            tasks: List[asyncio.Task[axi_request]] = []        
+            for core_id in range(self.num_cores):
+                # check if test_case exists
+                valid_testcase: bool = False
+                core_testcase: test_case = test_case(-1, -1, -1)           
+                if len(core_workloads_copy[core_id]) > 0:
+                    core_testcase: test_case = core_workloads_copy[core_id][-1]           
+                    valid_testcase = True
+             
+            
+                tasks.append(
+                    asyncio.create_task(
+                        self.core_worker_read(core_id, core_testcase, valid_testcase),
+                        name=f"Core-{core_id}"
+                    )
+                
+                )
+
+            # wait for all them and pop ones that are done
+            cur_cycle_results: List[axi_request] = await asyncio.gather(*tasks)
+            for index, result in enumerate(cur_cycle_results):
+                if result.mem_ready:
+                    print(f" data at {result.mem_addr} is {result.mem_rdata}")
+                    core_workloads_copy[index].pop()                        
+
+        print("=" * 70)
+        print("We Did it")
+        print("=" * 70)
+        
+
+        # loop until all worloads stack are empty
+        # while any(core_workloads_copy):
+        #     print("while loop start")
+        #     for index, coreworkload in enumerate(core_workloads_copy):
+        #         print(f"curr corr is {index}")
+        #         # if more tasks exist
+        #         if coreworkload: 
+        #             test_case: test_case = coreworkload[-1] # top of list
+
+        #             # try to write data
+        #             result_axi: axi_request = await self.cores[index].write(test_case.data_addr, test_case.data, test_case.wstb)
+
+
+        #             if result_axi is None:
+        #                 raise TypeError("results_axi is none")
+
+        #             # arbitrate gave core turn
+        #             if result_axi.mem_ready:
+        #                 core_workloads_copy.pop()                        
+
+        #             # arbitrate didnt give core turn yet, so keep task in stack
+
+        # print("all wrtie tasks done")
+                    
+                   
+
+
+
+
+
+        
+
+
+        # # atempt_num: int = 0
+
+        # # idle_request: axi_request = axi_request(False, False, False, 0, 0, 0, 0)
+        
+        # while True:
+        #     if workload:
+        #         test_case: test_case = workload[-1] # top of list
+
+        #         if result_axi is None:
+        #             raise TypeError("results_axi is none")
+
+        #         if result_axi.mem_ready:
+        #             workload.pop()                        
+        #         else:
+        #             # print(f"  Core {core_id}: ✗ Denied, will retry, currently on Attempt {atempt_num} ")
+        #             atempt_num += 1
+
+                    
+        #     else:
+        #         # print(f"Core {core_id}: Finished all tasks")
+        #         self.finsihed_cores += 1 
+
+        #         # while self.finsihed_cores != self.num_cores:
+        #             # result_axi = await self.arbiter.axi_handler_arbiter(idle_request, core_id)
+
+        #         # print(f"  Core {core_id}: All cores done, exiting")
+        #         break
+                               
+# External
+from dataclasses import dataclass
+
+# types
+from typing import (Optional, Dict, Callable, Awaitable)
+from msi_v2 import (MSIState, CoherenceCmd)
+from axi_request import (axi_and_coherence_request, axi_request)
+from util import (axi_and_cohrenece_cmd_to_axi)
+
+@dataclass
+class DirectoryEntry:
+    """
+    Directory state for a single memory address.
+    
+    The directory maintains coherence by tracking:
+    1. What state the line is in globally (INVALID, SHARED, or MODIFIED)
+    2. Which caches have copies (sharers bitmask)
+    
+    """
+    state: MSIState = MSIState.INVALID  # Global state
+    sharers: int = 0                    # Bitmask of caches with copies
+
+    def owner(self) -> Optional[int]:
+        """
+        Get the owner cache ID if this line is in MODIFIED state.
+        
+        In MODIFIED state, exactly one cache should have the line.
+        This function extracts which cache owns it.
+        
+        Returns:
+            Cache ID (0, 1, ...) if MODIFIED with single owner
+            None if not MODIFIED, no sharers, or multiple sharers (error)
+        
+        """
+        # Only MODIFIED state has an owner
+        if self.state != MSIState.MODIFIED:
+            return None
+        
+        # Must have at least one sharer
+        if self.sharers == 0:
+            return None
+        
+        # Must have exactly one sharer (power of 2 check)
+        if self.sharers & (self.sharers - 1):
+            return None  # Multiple bits set
+        
+        # Return which bit is set (cache ID)
+        return self.sharers.bit_length() - 1
+
+
+class DirectoryController:
+    """
+    Central directory controller for MSI cache coherence.
+    
+    The directory is the "home node" for all memory addresses. It:
+    1. Maintains directory entries tracking cache states
+    2. Stores memory data
+    3. Coordinates coherence by sending snoops to caches
+    4. Responds to coherence requests from caches
+    
+    Attributes:
+        num_cores: Number of caches in the system
+        entries: Directory state (address → DirectoryEntry)
+        memory: Main memory storage (address → data)
+        cache_ports: Cache AXI handlers (cache_id → axi_handler function)
+    """
+
+    def __init__(self, num_cores: int, mem_axi_handler: Callable[[axi_request], Awaitable[axi_request]]):
+
+        """
+        Initialize directory controller.
+        
+        Args:
+            num_cores: Number of caches/cores in the system (default 2)        
+            axi_handler: axi handler of memory
+        """
+
+        self.num_cores = num_cores
+        
+        # Directory state: lazy allocation (created on first access)
+        self.entries: Dict[int, DirectoryEntry] = {}
+        
+        # Main memory storage
+        # self.memory: Dict[int, int] = {}
+        self.memory_axi_handler: Callable[[axi_request], Awaitable[axi_request]] = mem_axi_handler
+        
+        # Cache communication ports
+        # Maps cache_id → cache's axi_handler function
+        self.cache_ports: Dict[int, Callable[[axi_and_coherence_request], Awaitable[axi_and_coherence_request]]] = {}
+
+    def register_cache(self, core_id: int, cache_axi_handler: Callable[[axi_and_coherence_request], Awaitable[axi_and_coherence_request]]) -> None:
+        """
+        Register a cache controller's AXI handler for snoop communication.
+                
+        Args:
+            core_id: Cache identifier (0, 1, ...)
+            cache_axi_handler: Cache's axi_handler function        
+        """
+
+        self.cache_ports[core_id] = cache_axi_handler
+
+
+    def _entry(self, addr: int) -> DirectoryEntry:
+        """
+        Get directory entry for an address, creating if necessary.
+        
+        Args:
+            addr: Memory address
+        
+        Returns:
+            DirectoryEntry for this address
+        """
+
+        if addr not in self.entries:
+            self.entries[addr] = DirectoryEntry()
+        return self.entries[addr]
+    
+
+
+    async def _send_snoop(self, target_core: int, addr: int, snoop_cmd: CoherenceCmd, requester: int) -> axi_and_coherence_request:
+        """
+        send a snoop message to a specific cache.
+        
+        args:
+            target_core: which cache to snoop (cache id)
+            addr: memory address being snooped
+            snoop_cmd: type of snoop (snoop_bus_rd, snoop_bus_rdx, snoop_bus_upgr)
+            requester: which cache initiated the original request
+        
+        returns:
+            flushed data from target cache as an axi + cohrence cmd
+                    
+        raises:
+            runtimeerror: if target cache doesn't acknowledge snoop
+        """
+
+        # get target cache's axi handler
+        port = self.cache_ports[target_core]
+
+        # build snoop request
+        req = axi_and_coherence_request(
+            mem_valid = True,
+            mem_ready = False,
+            mem_instr = False,  # this is coherence traffic
+            mem_addr = addr,
+            mem_wdata_or_msi_payload = 0,
+            mem_wstrb = 0xF,
+            mem_rdata = 0,
+            coherence_cmd = snoop_cmd,
+            core_id = requester
+        )
+             
+        # send snoop to cache (synchronous call)
+        resp: axi_and_coherence_request = await port(req)
+        
+        # verify cache acknowledged
+        if not resp.mem_ready:
+            raise RuntimeError(f"snoop not acknowledged by core {target_core}")
+        
+        # return any flushed data
+        return resp
+
+
+    async def _bus_rd(self, request: axi_and_coherence_request) -> axi_request:
+        """
+        Handle BUS_RD request (read miss from a cache).
+        
+        Args:
+            requester: Cache ID issuing the request
+            addr: Memory address to read
+        
+        Returns:
+            Data value (from memory or owner cache)        
+        """
+
+        axi_to_mem: axi_request = axi_and_cohrenece_cmd_to_axi(request) 
+
+        entry = self._entry(request.mem_addr)
+
+        # Case 1: INVALID - no cache has it
+        if entry.state == MSIState.INVALID:
+            # Fetch from memory (or default to 0 if never written)
+            entry.state = MSIState.SHARED
+            entry.sharers = 1 << request.core_id  # Set requester bit
+            # return self.memory.get(addr, 0)
+            return await self.memory_axi_handler(axi_to_mem)
+
+        # Case 2: SHARED - one or more caches have clean copies
+        if entry.state == MSIState.SHARED:
+            # Add requester to sharers
+            entry.sharers |= 1 << request.core_id
+            # Data is clean in memory
+            return await self.memory_axi_handler(axi_to_mem)
+
+        # Case 3: MODIFIED - one cache has dirty copy
+        # Get owner cache ID
+        owner = entry.owner()
+        
+        # If there's a valid owner and it's not the axi_and_coherence_request.core_id
+        if owner is not None and owner != request.core_id:
+
+            # Snoop owner to get dirty data
+            flushed = (await self._send_snoop(owner, axi_and_coherence_request.mem_addr, CoherenceCmd.SNOOP_BUS_RD, axi_and_coherence_request.core_id)).mem_rdata
+            
+            # Update memory with flushed data
+            write_request: axi_request = axi_request(
+                mem_valid= True,
+                mem_instr= False,
+                mem_ready= False,
+                mem_addr= request.mem_addr,
+                mem_wdata= flushed,
+                mem_wstrb= 0x0f,
+                mem_rdata=0
+            ) 
+       
+            memory_resp: axi_request = await self.memory_axi_handler(write_request)
+
+            if memory_resp.mem_ready is not True:
+                print("errrororororor")
+
+
+            # Keep owner in sharers (it downgrades to SHARED)
+            entry.sharers |= 1 << owner
+
+        # Transition to SHARED state
+        entry.state = MSIState.SHARED
+        
+        # Add requester to sharers
+        entry.sharers |= 1 << request.core_id
+        
+        # Return data (now clean in memory)
+        read_request: axi_request = axi_request(
+            mem_valid= True,
+            mem_instr= False,
+            mem_ready= False,
+            mem_addr= request.mem_addr,
+            mem_wdata= 0,
+            mem_wstrb= 0x00,
+            mem_rdata= 0
+        ) 
+
+        memory_resp: axi_request = await self.memory_axi_handler(read_request)
+
+        if memory_resp.mem_ready is not True:
+            print("error xd")
+
+        return memory_resp
+
+
+    async def _bus_rdx(self, request: axi_and_coherence_request) -> axi_request:
+        """
+        Handle BUS_RDX request (write miss from a cache).
+        
+        A cache issues BUS_RDX when:
+        - Cache line is INVALID (write miss)
+        - Cache needs data AND exclusive access
+        
+        Directory Action:
+        - Provides data
+        - Invalidates all other copies
+        - Grants exclusive access to requester
+        - Updates state to MODIFIED
+        
+        Args:
+            requester: Cache ID issuing the request
+            addr: Memory address to write
+        
+        Returns:
+            Data value (from memory or owner cache)
+
+        """
+        entry = self._entry(request.mem_addr)
+
+        # read data from address
+        read_request: axi_request = axi_request(
+            mem_valid= True,
+            mem_instr= False,
+            mem_ready= False,
+            mem_addr= request.mem_addr,
+            mem_wdata= 0,
+            mem_wstrb= 0x00,
+            mem_rdata= 0
+        ) 
+
+        data: axi_request = await self.memory_axi_handler(read_request)
+
+        # Case 1: INVALID - no cache has it
+        if entry.state == MSIState.INVALID:
+            # Grant exclusive access
+            entry.state = MSIState.MODIFIED
+            entry.sharers = 1 << request.core_id
+            return data 
+
+        # Case 2: SHARED - invalidate all other sharers
+        if entry.state == MSIState.SHARED:
+            # Snoop all sharers except requester
+            for c in range(self.num_cores):
+                if c != request.core_id and ((entry.sharers >> c) & 1):
+                    # Send invalidation
+                    _ = self._send_snoop(c, request.mem_addr, CoherenceCmd.SNOOP_BUS_RDX, request.core_id)
+            
+            # Grant exclusive access
+            entry.state = MSIState.MODIFIED
+            entry.sharers = 1 << request.core_id
+            return data
+
+        # Case 3: MODIFIED - transfer ownership
+        owner = entry.owner()
+        if owner is not None and owner != request.core_id:
+            # Get dirty data from owner
+            flushed = (await self._send_snoop(owner, request.mem_addr, CoherenceCmd.SNOOP_BUS_RDX, request.core_id)).mem_rdata
+            
+            # Update memory
+            write_request: axi_request = axi_request(
+                mem_valid= True,
+                mem_instr= False,
+                mem_ready= False,
+                mem_addr= request.mem_addr,
+                mem_wdata= flushed,
+                mem_wstrb= 0x0f,
+                mem_rdata=0
+            ) 
+            await self.memory_axi_handler(write_request)
+
+        # Grant exclusive access to requester
+        entry.state = MSIState.MODIFIED
+        entry.sharers = 1 << request.core_id
+        return data
+
+
+    async def _bus_upgr(self, request: axi_and_coherence_request) -> axi_request:
+        """
+        Handle BUS_UPGR request (upgrade from SHARED to MODIFIED).
+        
+        A cache issues BUS_UPGR when:
+        - Cache line is SHARED (already has data)
+        - CPU writes to the line
+        - Cache needs exclusive access but ALREADY has the data
+        
+        Difference from BUS_RDX:
+        - BUS_RDX: Need data + exclusive (cache miss on write)
+        - BUS_UPGR: Already have data, just need exclusive (cache hit on write)
+        
+        Directory Action:
+        - Invalidates all other sharers (not requester)
+        - No data transfer needed (requester already has it)
+        - Updates state to MODIFIED
+        
+        Args:
+            requester: Cache ID issuing the request
+            addr: Memory address being upgraded
+        
+        Returns:
+            Data value from memory (for consistency, though requester has it)        
+        """
+
+        entry = self._entry(request.mem_addr)
+
+        # Normal case: state is SHARED
+        if entry.state == MSIState.SHARED:
+            # Invalidate all other sharers
+            for c in range(self.num_cores):
+                if c != request.core_id and ((entry.sharers >> c) & 1):
+                    _ = self._send_snoop(c, request.mem_addr, CoherenceCmd.SNOOP_BUS_UPGR, request.core_id)
+            
+            # Grant exclusive access
+            entry.state = MSIState.MODIFIED
+            entry.sharers = 1 << request.core_id
+
+
+            read_request: axi_request = axi_request(
+                mem_valid= True,
+                mem_instr= False,
+                mem_ready= False,
+                mem_addr= request.mem_addr,
+                mem_wdata= 0,
+                mem_wstrb= 0x00,
+                mem_rdata= 0
+            ) 
+
+            return await self.memory_axi_handler(read_request)
+            
+        # Fallback: if not SHARED, treat as BUS_RDX
+        # This handles edge cases (e.g., race conditions, protocol violations)
+        return await self._bus_rdx(request)
+
+    def _evict_clean(self, request: axi_and_coherence_request) -> axi_request:
+        """
+        Handle clean eviction (evicting a SHARED line).
+        
+        A cache issues EVICT_CLEAN when:
+        - Evicting a line in SHARED state
+        - No writeback needed (data is clean)
+        
+        Directory Action:
+        - Remove cache from sharers list
+        - If no more sharers, transition to INVALID
+        - If MODIFIED and multiple sharers (error), downgrade to SHARED
+        
+        Args:
+            requester: Cache ID evicting the line
+            addr: Memory address being evicted
+                
+        """
+        entry = self._entry(request.mem_addr)
+        
+        # Remove requester from sharers
+        entry.sharers &= ~(1 << request.core_id)
+        
+        # If no sharers left, transition to INVALID
+        if entry.sharers == 0:
+            entry.state = MSIState.INVALID
+        # Error recovery: MODIFIED but no valid single owner
+        elif entry.state == MSIState.MODIFIED and entry.owner() is None:
+            entry.state = MSIState.SHARED
+
+        return axi_request(
+            mem_valid=True,
+            mem_instr=False,
+            mem_ready=True,  
+            mem_addr=request.mem_addr,
+            mem_wdata=0,
+            mem_wstrb=0,
+            mem_rdata=0 # No data needed for clean eviction
+        )
+
+        
+
+    async def _evict_dirty(self, request: axi_and_coherence_request) -> axi_request:
+        """
+        Handle dirty eviction (evicting a MODIFIED line).
+        
+        A cache issues EVICT_DIRTY when:
+        - Evicting a line in MODIFIED state
+        - Line has dirty data that must be written back
+        
+        Directory Action:
+        - Write back data to memory
+        - Remove cache from sharers
+        - Update directory state appropriately
+        
+        Args:
+            requester: Cache ID evicting the line
+            addr: Memory address being evicted
+            data: Dirty data to write back        
+        """
+
+        # Write back dirty data to memory
+        write_request: axi_request = axi_request(
+            mem_valid= True,
+            mem_instr= False,
+            mem_ready= False,
+            mem_addr= request.mem_addr,
+            mem_wdata= request.mem_wdata_or_msi_payload,
+            mem_wstrb= 0x0f,
+            mem_rdata=0
+        ) 
+        to_return: axi_request = await self.memory_axi_handler(write_request)
+        
+        # Clean up directory entry
+        self._evict_clean(request)
+
+        return to_return
+
+    async def _handle_coherence(self, request: axi_and_coherence_request) -> axi_request:
+        """
+        Dispatch coherence commands to appropriate handlers.
+        
+        This is the main dispatcher for all coherence protocol commands
+        received from caches. It unpacks the command and routes to the
+        appropriate handler.
+        
+        Args:
+            addr: Memory address
+            packed_cmd: Packed coherence command from cache
+        
+        Returns:
+            Response data (relevant for BUS_RD, BUS_RDX, BUS_UPGR)
+
+        Raises:
+            ValueError: If command is not recognized
+        """
+        # Unpack command
+        cmd = request.coherence_cmd 
+        # cmd, requester, payload = unpack_cmd(packed_cmd)
+
+        # Route to appropriate handler
+        if cmd == CoherenceCmd.BUS_RD:
+            return await self._bus_rd(request)
+        
+        if cmd == CoherenceCmd.BUS_RDX:
+            return await self._bus_rdx(request)
+        
+        if cmd == CoherenceCmd.BUS_UPGR:
+            return await self._bus_upgr(request)
+        
+        if cmd == CoherenceCmd.EVICT_CLEAN:
+            return self._evict_clean(request)
+        
+        if cmd == CoherenceCmd.EVICT_DIRTY:
+            return await self._evict_dirty(request)
+
+        # Unknown command
+        raise ValueError(f"unknown coherence cmd {cmd}")
+
+
+    async def axi_handler_for_arbiter(self, request: axi_and_coherence_request) -> axi_request:
+        """
+        Main AXI request handler for directory controller.
+        
+        Routes requests based on mem_instr flag:
+        - mem_instr=True: Coherence traffic (BUS_RD, evictions, etc.)
+        - mem_instr=False: Normal memory read/write
+        
+        Args:
+            request: AXI request from cache or CPU
+        
+        Returns:
+            AXI response with data and mem_ready=True
+        
+       """
+        # Ignore invalid requests
+        if not request.mem_valid:
+            request.mem_ready = False
+            return axi_and_cohrenece_cmd_to_axi(request)
+
+
+        return await self._handle_coherence(request)
+
+        # # Route based on traffic type
+        # if request.mem_instr:
+        #     # Coherence command from cache
+            
+            
+
+        # # Direct memory access (non-coherent)
+        # if request.mem_wstrb == 0:
+        #     # Memory read
+        #     request.mem_rdata = self.memory.get(request.mem_addr, 0)
+        # else:
+        #     # Memory write (with byte-level granularity)
+        #     old_value = self.memory.get(request.mem_addr, 0)
+        #     self.memory[request.mem_addr] = apply_wstrb(
+        #         old_value,
+        #         request.mem_wdata,
+        #         request.mem_wstrb
+        #     )
+        #     request.mem_rdata = self.memory[request.mem_addr]
+
+        # request.mem_ready = True
+        # return request
+    
+
+# external
+import asyncio
+
+# types
+from testcase import test_case
+from typing import List
+
+# hardware emulators
+from CPU import CPU
+
+async def main():
+    # prepare test cases
+    testcases: List[test_case] = []
+    for i in range(10):
+        testcases.append(test_case(i, i, 0b1111))
+
+    # create CPU
+    to_the_moon: CPU = CPU(2, testcases)
+
+    # await the async method
+    x = await to_the_moon.start_sim()
+    print(x)
+
+# run the async main
+asyncio.run(main())
+
+
+
+            
+        
+        
+        
+        
+
+            
+
+    
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+# types
+from axi_request import axi_request
+
+class MemoryController:
+    def __init__(self):
+        self.sram: dict[int, int] = {}
+
+    async def read(self, address: int) -> int:
+        if address in self.sram:
+            return self.sram[address]
+        else:
+            return 0
+
+    async def write(self, address: int, data: int, write_strobe: int) -> None:
+
+        # break write data into bytes
+        byte0: int = data & 0x000F
+        byte1: int = data & 0x00F0
+        byte2: int = data & 0x0F00
+        byte3: int = data & 0xF000
+
+        # break the write strobe down into binary flags
+        # and use it to build data to write
+        data_to_write: int = 0
+        temp: int = write_strobe
+        
+        # byte 3
+        if temp % 2 == 1:
+            data_to_write = data_to_write | byte3
+        temp = temp // 2
+        
+        # byte 2     
+        if temp % 2 == 1:
+            data_to_write = data_to_write | byte2
+        temp = temp // 2
+
+        # byte 1
+        if temp % 2 == 1:
+            data_to_write = data_to_write | byte1
+        temp = temp // 2
+
+        # byte 0
+        if temp % 2 == 1:
+            data_to_write = data_to_write | byte0
+        temp = temp // 2
+
+        self.sram[address] = data_to_write
+
+        return
+    
+    async def axi_handler(self, request: axi_request) -> axi_request:
+        # we get a valid mem request and handshake
+        if request.mem_valid is True:
+        
+            # read
+            if request.mem_wstrb == 0:
+                request.mem_rdata = await self.read(request.mem_addr)
+                request.mem_ready = True        
+
+            # write 
+            else:
+                await self.write(request.mem_addr, request.mem_wdata, request.mem_wstrb)
+                request.mem_ready = True        
+             
+        return request 
+"""
+MSI Cache Coherence Protocol - State Machine Core Module
+
+This module defines the MSI (Modified-Shared-Invalid) protocol state machine and 
+core data structures used by both cache controllers and the directory controller.
+"""
+
+from dataclasses import dataclass
+from enum import IntEnum
+from typing import Optional
+
+# ============================================================================
+# MSI Protocol States and Events
+# ============================================================================
+
+class MSIState(IntEnum):
+    """
+    MSI cache coherence states.
+    
+    State Meanings:
+    - INVALID: Cache line not present or invalidated (no copy exists)
+    - SHARED: Read-only copy, may be shared with other caches
+    - MODIFIED: Exclusive, dirty copy (must write back on eviction)
+    
+    State Invariants:
+    1. At most one cache can be in MODIFIED for any address
+    2. If one cache is MODIFIED, all others must be INVALID
+    3. Multiple caches can be SHARED simultaneously
+    """
+    INVALID = 0   # No valid copy in this cache
+    SHARED = 1    # Read-only copy (clean)
+    MODIFIED = 2  # Read-write copy (dirty)
+
+
+class ProcessorEvent(IntEnum):
+    """
+    Processor-initiated events (CPU → Cache).
+    
+    These represent CPU memory operations that trigger cache state transitions.
+    
+    PR_RD: Processor Read
+        - CPU wants to read from this address
+        - May cause cache miss (state transition)
+    
+    PR_WR: Processor Write
+        - CPU wants to write to this address
+        - May require exclusive access (upgrade or miss)
+    """
+    PR_RD = 0  # Processor read request
+    PR_WR = 1  # Processor write request
+
+
+class SnoopEvent(IntEnum):
+    """
+    Snoop events (Directory → Cache via snoop messages).
+    
+    These represent coherence operations from other caches that this cache
+    must respond to. Snoops are triggered by the directory when another
+    cache issues a bus transaction.
+    
+    BUS_RD: Another cache is reading (BusRd transaction)
+        - This cache may need to share if in MODIFIED state
+    
+    BUS_RDX: Another cache is writing (BusRdX transaction)
+        - This cache must invalidate and possibly flush dirty data
+    
+    BUS_UPGR: Another cache is upgrading from SHARED to MODIFIED
+        - This cache must invalidate (no flush needed - data already shared)
+    """
+    BUS_RD = 0     # Another cache issued BusRd (read miss)
+    BUS_RDX = 1    # Another cache issued BusRdX (write miss)
+    BUS_UPGR = 2   # Another cache issued BusUpgr (write hit in Shared)
+
+
+class CoherenceCmd(IntEnum):
+    """
+    Coherence command types for cache-directory communication.
+    
+    Commands are divided into two categories:
+    
+    1. Cache → Directory (bus transactions):
+       - BUS_RD: Read miss, need data
+       - BUS_RDX: Write miss, need exclusive access
+       - BUS_UPGR: Upgrade from SHARED to MODIFIED (already have data)
+       - EVICT_CLEAN: Evicting SHARED line (no writeback needed)
+       - EVICT_DIRTY: Evicting MODIFIED line (writeback included)
+    
+    2. Directory → Cache (snoop commands):
+       - SNOOP_BUS_RD: Another cache is reading, share if MODIFIED
+       - SNOOP_BUS_RDX: Another cache is writing, invalidate and flush if MODIFIED
+       - SNOOP_BUS_UPGR: Another cache is upgrading, invalidate
+    
+    Note: Values are chosen to avoid conflicts (snoops start at 17)
+    """
+    # Cache-to-Directory commands (values 1-5)
+    BUS_RD = 1        # Read request (cache miss on read)
+    BUS_RDX = 2       # Read-exclusive request (cache miss on write)
+    BUS_UPGR = 3      # Upgrade request (cache hit on write in SHARED state)
+    EVICT_CLEAN = 4   # Evict SHARED line (no data)
+    EVICT_DIRTY = 5   # Evict MODIFIED line (includes writeback data)
+    
+    # Directory-to-Cache commands (values 17-19, offset to avoid conflicts)
+    SNOOP_BUS_RD = 17    # Snoop: another cache reading
+    SNOOP_BUS_RDX = 18   # Snoop: another cache writing
+    SNOOP_BUS_UPGR = 19  # Snoop: another cache upgrading
+
+
+# ============================================================================
+# State Transition Result
+# ============================================================================
+
+@dataclass
+class TransitionResult:
+    """
+    Result of an MSI state transition.
+    
+    Used by both on_processor_event() and on_snoop_event() to indicate:
+    1. What the new cache state should be
+    2. Whether a coherence command should be issued to the directory
+    3. Whether data needs to be flushed (for snoops only)
+    
+    Fields:
+        next_state: The new MSI state after this transition
+        issue_cmd: Coherence command to send to directory (None if no action needed)
+        flush: Whether to flush data back (for snoop events on MODIFIED lines)
+    
+    Examples:
+        # Read miss in INVALID state
+        TransitionResult(SHARED, BUS_RD, False)
+        
+        # Write hit in MODIFIED state (no bus transaction needed)
+        TransitionResult(MODIFIED, None, False)
+        
+        # Snoop BusRd while MODIFIED (flush data, downgrade to SHARED)
+        TransitionResult(SHARED, None, True)
+    """
+    next_state: MSIState           # New state after transition
+    issue_cmd: Optional[CoherenceCmd] = None  # Command to issue (or None)
+    flush: bool = False            # Whether to flush data (snoop only)
+
+# ============================================================================
+# MSI State Machine - Processor Events
+# ============================================================================
+
+def on_processor_event(state: MSIState, event: ProcessorEvent) -> TransitionResult:
+    """
+    MSI state transition for processor-initiated events (CPU operations).
+    
+    This function implements the core MSI protocol logic for CPU reads and writes.
+    It determines:
+    1. What the new cache state should be
+    2. Whether a bus transaction needs to be issued to the directory
+    
+    State Transition Table:
+    
+    Current State | Event  | Next State | Bus Transaction | Notes
+    --------------|--------|------------|-----------------|---------------------------
+    INVALID       | PR_RD  | SHARED     | BUS_RD          | Read miss, fetch from memory
+    INVALID       | PR_WR  | MODIFIED   | BUS_RDX         | Write miss, get exclusive
+    SHARED        | PR_RD  | SHARED     | None            | Read hit, no action needed
+    SHARED        | PR_WR  | MODIFIED   | BUS_UPGR        | Upgrade to exclusive, invalidate others
+    MODIFIED      | PR_RD  | MODIFIED   | None            | Read hit, data already exclusive
+    MODIFIED      | PR_WR  | MODIFIED   | None            | Write hit, data already exclusive
+    
+    Args:
+        state: Current MSI state of the cache line
+        event: Processor event (PR_RD or PR_WR)
+    
+    Returns:
+        TransitionResult with next_state and optional issue_cmd
+    
+    Example Usage (in CacheController):
+        line = self._line(addr)
+        tr = on_processor_event(line.state, ProcessorEvent.PR_RD)
+        
+        # If command needs to be issued, send to directory
+        if tr.issue_cmd is not None:
+            line.data = self._send_dir_cmd(tr.issue_cmd, addr)
+        
+        # Update cache line state
+        line.state = tr.next_state
+    """
+    
+    # ---- INVALID State ----
+    # Cache line not present - must fetch from memory/directory
+    if state == MSIState.INVALID:
+        if event == ProcessorEvent.PR_RD:
+            # Read miss: Fetch data and transition to SHARED
+            # Issue BUS_RD to directory to get data
+            return TransitionResult(MSIState.SHARED, CoherenceCmd.BUS_RD, False)
+        else:  # PR_WR
+            # Write miss: Fetch data and transition to MODIFIED (exclusive)
+            # Issue BUS_RDX to directory to get data and invalidate others
+            return TransitionResult(MSIState.MODIFIED, CoherenceCmd.BUS_RDX, False)
+    
+    # ---- SHARED State ----
+    # Cache line present in read-only form
+    if state == MSIState.SHARED:
+        if event == ProcessorEvent.PR_RD:
+            # Read hit: Data already present, no action needed
+            return TransitionResult(MSIState.SHARED, None, False)
+        else:  # PR_WR
+            # Write upgrade: Already have data, just need exclusive access
+            # Issue BUS_UPGR to invalidate other sharers (no data transfer)
+            return TransitionResult(MSIState.MODIFIED, CoherenceCmd.BUS_UPGR, False)
+    
+    # ---- MODIFIED State ----
+    # Cache line present in exclusive/dirty form
+    if state == MSIState.MODIFIED:
+        # Both reads and writes hit - data is already exclusive
+        # No bus transaction needed for either operation
+        return TransitionResult(MSIState.MODIFIED, None, False)
+    
+    # Should never reach here if state is valid
+    raise ValueError("invalid MSI state")
+
+
+# ============================================================================
+# MSI State Machine - Snoop Events
+# ============================================================================
+
+def on_snoop_event(state: MSIState, event: SnoopEvent) -> TransitionResult:
+    """
+    MSI state transition for snoop events (coherence messages from directory).
+    
+    This function implements how a cache responds to coherence operations
+    initiated by OTHER caches. The directory sends snoop commands when another
+    cache needs to:
+    - Read data (BUS_RD) - may need to share
+    - Write data (BUS_RDX) - must invalidate
+    - Upgrade to exclusive (BUS_UPGR) - must invalidate
+    
+    State Transition Table:
+    
+    Current State | Snoop Event | Next State | Flush Data? | Notes
+    --------------|-------------|------------|-------------|---------------------------
+    INVALID       | Any         | INVALID    | No          | No copy, ignore snoop
+    SHARED        | BUS_RD      | SHARED     | No          | Other cache reading, stay shared
+    SHARED        | BUS_RDX     | INVALID    | No          | Other cache writing, invalidate
+    SHARED        | BUS_UPGR    | INVALID    | No          | Other cache upgrading, invalidate
+    MODIFIED      | BUS_RD      | SHARED     | Yes         | Other cache reading, share data
+    MODIFIED      | BUS_RDX     | INVALID    | Yes         | Other cache writing, flush & invalidate
+    MODIFIED      | BUS_UPGR    | MODIFIED   | No          | Can't happen (would be SHARED)
+    
+    Args:
+        state: Current MSI state of the cache line
+        event: Snoop event (BUS_RD, BUS_RDX, or BUS_UPGR)
+    
+    Returns:
+        TransitionResult with next_state and flush flag
+        - flush=True means cache must provide data (send back in mem_rdata)
+    
+    Example Usage (in CacheController):
+        line = self._line(addr)
+        tr = on_snoop_event(line.state, SnoopEvent.BUS_RD)
+        
+        # If flush requested, include data in response
+        flush_data = line.data if tr.flush else 0
+        
+        # Update state
+        line.state = tr.next_state
+        
+        # Return flush data to directory
+        return flush_data
+    """
+    
+    # ---- INVALID State ----
+    # No copy of this line - ignore all snoops
+    if state == MSIState.INVALID:
+        # Cache doesn't have this line, no action needed
+        return TransitionResult(MSIState.INVALID, None, False)
+    
+    # ---- SHARED State ----
+    # Read-only copy - may need to invalidate
+    if state == MSIState.SHARED:
+        if event == SnoopEvent.BUS_RD:
+            # Another cache reading: stay SHARED (data is clean in memory)
+            # No flush needed - data will come from memory
+            return TransitionResult(MSIState.SHARED, None, False)
+        else:  # BUS_RDX or BUS_UPGR
+            # Another cache writing/upgrading: must invalidate our copy
+            # No flush needed - data is clean (SHARED is read-only)
+            return TransitionResult(MSIState.INVALID, None, False)
+    
+    # ---- MODIFIED State ----
+    # Exclusive/dirty copy - may need to flush and downgrade/invalidate
+    if state == MSIState.MODIFIED:
+        if event == SnoopEvent.BUS_RD:
+            # Another cache reading: must share
+            # Flush dirty data, downgrade to SHARED
+            # Directory will update memory and send data to requester
+            return TransitionResult(MSIState.SHARED, None, True)
+        
+        if event == SnoopEvent.BUS_RDX:
+            # Another cache writing: must invalidate
+            # Flush dirty data and transition to INVALID
+            # Directory will send data to new owner
+            return TransitionResult(MSIState.INVALID, None, True)
+        
+        # BUS_UPGR while MODIFIED shouldn't happen in MSI protocol
+        # BusUpgr is only issued from SHARED state, and only one cache
+        # can be MODIFIED at a time. If we're MODIFIED, others must be INVALID.
+        # This is a protocol violation, but we handle it gracefully by staying MODIFIED
+        return TransitionResult(MSIState.MODIFIED, None, False)
+    
+    # Should never reach here if state is valid
+    raise ValueError("invalid MSI state")
+
+
+from dataclasses import dataclass
+
+@dataclass
+class test_case:
+    data_addr: int
+    data: int
+    wstb: int
+
+from axi_request import (axi_request, axi_and_coherence_request)
+
+def apply_wstrb(old_value: int, new_value: int, wstrb: int) -> int:
+    """
+    Apply byte-level write strobe to merge new data with old data.
+    
+    This function implements byte-granular writes, allowing partial word updates.
+    Each bit in wstrb controls whether the corresponding byte is updated.
+    
+    Args:
+        old_value: Existing 32-bit value in cache
+        new_value: New 32-bit value from CPU write
+        wstrb: Write strobe mask (4 bits for 4 bytes)
+               Bit 0 = byte 0 (bits [7:0])
+               Bit 1 = byte 1 (bits [15:8])
+               Bit 2 = byte 2 (bits [23:16])
+               Bit 3 = byte 3 (bits [31:24])
+    
+    Returns:
+        Merged 32-bit value with selected bytes updated    
+    """
+    result = old_value
+    for i in range(4):  # 4 bytes in a 32-bit word
+        if (wstrb >> i) & 1:  # Check if bit i is set
+            # Update byte i
+            byte_mask = 0xFF << (8 * i)  # Mask for byte i
+            result = (result & ~byte_mask) | (new_value & byte_mask)
+    return result
+
+def axi_and_cohrenece_cmd_to_axi(to_cast: axi_and_coherence_request) -> axi_request:
+
+    to_return: axi_request = axi_request(to_cast.mem_valid,
+                                         to_cast.mem_instr,
+                                         to_cast.mem_ready,
+                                         to_cast.mem_addr,
+                                         to_cast.mem_wdata_or_msi_payload,
+                                         to_cast.mem_wstrb,
+                                         to_cast.mem_rdata
+                                     )
+
+    return to_return
+        
+# external modules
+import asyncio
+
+# types
+from axi_request import (axi_request, axi_and_coherence_request)
+from typing import List, Callable, Optional, Awaitable
+
+# functions
+from util import (axi_and_cohrenece_cmd_to_axi)
+
+
+class WeightedRoundRobinArbiter:
+
+    def __init__(self, num_requesters: int, weights: List[int], axi_handler: Callable[[axi_and_coherence_request], Awaitable[axi_request]]):
+ 
+        # error checking
+        if len(weights) != num_requesters:
+            raise ValueError(f"Number of weights ({len(weights)}) must match " f"number of requesters ({num_requesters})")
+
+        if any(w <= 0 for w in weights):
+            raise ValueError("All weights must be positive integers")
+
+        
+        # num_requesters: Number of requesters in the system
+        self.num_requesters = num_requesters
+                
+        # weights: List of weights for each requester, defines how many
+        # times a requester gets prioroty
+        self.weights = weights
+
+        # current requester index
+        self.current_index = 0
+
+        # their reminading credits/tickets
+        self.remaining_credits = self.weights[0]
+
+        # area to send chossen axi call to
+        self.axi_send_and_recieve: Callable[[axi_and_coherence_request], Awaitable[axi_request]] = axi_handler
+
+        # find max possible iterations needed for round bin
+        self.max_possible_iterations: int = sum(weights)
+
+        # bit mapping to track that all cores requested
+        self.cores_arrived: int = 0
+        self.cores_axi_requsts: List[Optional[axi_and_coherence_request]] = [None] * self.num_requesters
+
+        # Syncronazation stuff need for coroutines 
+        self.lock_to_wait_for_all_cores = asyncio.Lock()
+        self.all_arrived = asyncio.Event()
+        self.arbitation_done = asyncio.Event()
+
+        # request flags
+        self.request_id: int = -1         
+
+
+    async def axi_handler_arbiter(self, request_axi: axi_and_coherence_request) ->  axi_request:
+
+        # Wait all cores to sumbit something
+        async with self.lock_to_wait_for_all_cores:          
+
+            # mark core as arrived and store its data
+            self.cores_arrived += 1
+            self.cores_axi_requsts[request_axi.core_id] = request_axi
+
+            # all cores arrived
+            if self.cores_arrived == self.num_requesters:
+                # self.cores_arrived = 0
+                self.all_arrived.set()
+
+
+        await self.all_arrived.wait() # this will stall till all cores here
+
+
+        # use core 0 to run abitration, in the verilog this
+        # will be done by a verilog module
+        async with self.lock_to_wait_for_all_cores:
+            if request_axi.core_id == 0:
+                # build requests arr from axi_arr
+                requests_in: List[int] = [] 
+                for axi_request in self.cores_axi_requsts:
+                    # need this cause axi_arr doesnt force type
+                    if axi_request is None:
+                        raise ValueError("axi_requests None")
+
+                    requests_in.append(axi_request.mem_valid)
+
+                # send this into nick arbitrate function
+                requests_out: List[int] = self.arbitrate(requests_in)
+
+                # find core to let through
+                self.request_id = requests_out.index(1)
+                print(f"let {self.request_id} core through")
+                self.arbitation_done.set()
+
+        await self.arbitation_done.wait() 
+
+        # let each core through one by one to check if it got its turn
+        curr_core_axi_packet_temp: Optional[axi_and_coherence_request] = self.cores_axi_requsts[request_axi.core_id]
+
+
+        ## i need to spin here not send back invalid packet !!
+        if curr_core_axi_packet_temp is not None:
+            curr_core_axi_packet: axi_and_coherence_request = curr_core_axi_packet_temp;
+        else:
+            raise TypeError("curr_core_axi_packet is None")
+
+        # see if core was chosen by arbiter
+        if request_axi.core_id == self.request_id:
+            to_return: axi_request = await self.axi_send_and_recieve(curr_core_axi_packet)
+        else:
+            to_return: axi_request = axi_and_cohrenece_cmd_to_axi(curr_core_axi_packet) 
+
+        # clean up
+        async with self.lock_to_wait_for_all_cores:        
+            self.cores_arrived -= 1
+            if self.cores_arrived == 0:
+                self.all_arrived.clear()
+                self.arbitation_done.clear()
+
+        return to_return
+
+        
+    def arbitrate(self, requests: List[int]) -> List[int]:
+
+        # error checker
+        if len(requests) != self.num_requesters:
+            raise ValueError(
+                f"Number of requests ({len(requests)}) must match "
+                f"number of requesters ({self.num_requesters})"
+            )
+        
+        # If no requests, return all zeros
+        if sum(requests) == 0:
+            return [0] * self.num_requesters
+        
+
+        # Search for the next requester with an active request
+        attempts = 0
+        while attempts < self.max_possible_iterations:
+
+            # If current requester has a request, grant it
+            if requests[self.current_index] == 1:
+                grant = [0] * self.num_requesters
+                grant[self.current_index] = 1
+                
+                # Decrement credits
+                self.remaining_credits -= 1
+                
+                # Move to next requester if credits exhausted
+                if self.remaining_credits == 0:
+                    self.current_index = (self.current_index + 1) % self.num_requesters
+                    self.remaining_credits = self.weights[self.current_index]
+                
+                return grant
+
+            # Current requester has no request, move to next
+            else:
+                self.current_index = (self.current_index + 1) % self.num_requesters
+                self.remaining_credits = self.weights[self.current_index]
+                attempts += 1
+        
+        # Fallback (should never reach here with valid inputs)
+        print("error ")
+        raise Exception("abritation hit timeout")
+from typing import Callable, Optional, Awaitable
+from axi_request import axi_request
+
+class Core:
+
+    def __init__(self, cpu_id: int, axi_handler: Callable[[axi_request], Awaitable[axi_request]]):
+        # cpe inentifier
+        self.cpu_id: int = cpu_id
+        # functions pointers to send and recive axi packets
+        self.axi_send_and_recieve: Callable[[axi_request], Awaitable[axi_request]] = axi_handler
+
+    # read functions
+    async def read(self, addr: int) -> axi_request:
+        read_request:axi_request = axi_request(
+            mem_valid= True,
+            mem_instr=False,
+            mem_ready=False,
+            mem_addr=addr,
+            mem_wdata=0,
+            mem_wstrb=0b0000,
+            mem_rdata=0)
+
+        return await self.axi_send_and_recieve(read_request)
+
+
+    async def read_nothing(self) -> axi_request:
+        read_request:axi_request = axi_request(
+            mem_valid= False,
+            mem_instr=False,
+            mem_ready=False,
+            mem_addr=0,
+            mem_wdata=0,
+            mem_wstrb=0b0000,
+            mem_rdata=0)
+
+        return await self.axi_send_and_recieve(read_request)
+    
+    # write functions
+    async def write(self, addr_in: int, data_in: int, wstb_in: int) -> axi_request:
+        write_request: axi_request = axi_request(
+            mem_valid= True,
+            mem_instr=False,
+            mem_ready=False,
+            mem_addr=addr_in,
+            mem_wdata=data_in,
+            mem_wstrb=wstb_in,
+            mem_rdata=0
+        ) 
+       
+        return await self.axi_send_and_recieve(write_request)
+
+
+    
+    async def write_nothing(self) -> axi_request:
+        write_request: axi_request = axi_request(
+            mem_valid= False,
+            mem_instr=False,
+            mem_ready=False,
+            mem_addr=0,
+            mem_wdata=0,
+            mem_wstrb=0,
+            mem_rdata=0
+        ) 
+      
+        return await self.axi_send_and_recieve(write_request)
+           
+# External
+from dataclasses import dataclass
+
+# types
+from typing import (Optional, Dict, Callable, Awaitable)
+from msi_v2 import (MSIState, CoherenceCmd)
+from axi_request import (axi_and_coherence_request, axi_request)
+from util import (axi_and_cohrenece_cmd_to_axi)
+
+@dataclass
+class DirectoryEntry:
+    """
+    Directory state for a single memory address.
+    
+    The directory maintains coherence by tracking:
+    1. What state the line is in globally (INVALID, SHARED, or MODIFIED)
+    2. Which caches have copies (sharers bitmask)
+    
+    """
+    state: MSIState = MSIState.INVALID  # Global state
+    sharers: int = 0                    # Bitmask of caches with copies
+
+    def owner(self) -> Optional[int]:
+        """
+        Get the owner cache ID if this line is in MODIFIED state.
+        
+        In MODIFIED state, exactly one cache should have the line.
+        This function extracts which cache owns it.
+        
+        Returns:
+            Cache ID (0, 1, ...) if MODIFIED with single owner
+            None if not MODIFIED, no sharers, or multiple sharers (error)
+        
+        """
+        # Only MODIFIED state has an owner
+        if self.state != MSIState.MODIFIED:
+            return None
+        
+        # Must have at least one sharer
+        if self.sharers == 0:
+            return None
+        
+        # Must have exactly one sharer (power of 2 check)
+        if self.sharers & (self.sharers - 1):
+            return None  # Multiple bits set
+        
+        # Return which bit is set (cache ID)
+        return self.sharers.bit_length() - 1
+
+
+class DirectoryController:
+    """
+    Central directory controller for MSI cache coherence.
+    
+    The directory is the "home node" for all memory addresses. It:
+    1. Maintains directory entries tracking cache states
+    2. Stores memory data
+    3. Coordinates coherence by sending snoops to caches
+    4. Responds to coherence requests from caches
+    
+    Attributes:
+        num_cores: Number of caches in the system
+        entries: Directory state (address → DirectoryEntry)
+        memory: Main memory storage (address → data)
+        cache_ports: Cache AXI handlers (cache_id → axi_handler function)
+    """
+
+    def __init__(self, num_cores: int, mem_axi_handler: Callable[[axi_request], Awaitable[axi_request]]):
+
+        """
+        Initialize directory controller.
+        
+        Args:
+            num_cores: Number of caches/cores in the system (default 2)        
+            axi_handler: axi handler of memory
+        """
+
+        self.num_cores = num_cores
+        
+        # Directory state: lazy allocation (created on first access)
+        self.entries: Dict[int, DirectoryEntry] = {}
+        
+        # Main memory storage
+        # self.memory: Dict[int, int] = {}
+        self.memory_axi_handler: Callable[[axi_request], Awaitable[axi_request]] = mem_axi_handler
+        
+        # Cache communication ports
+        # Maps cache_id → cache's axi_handler function
+        self.cache_ports: Dict[int, Callable[[axi_and_coherence_request], Awaitable[axi_and_coherence_request]]] = {}
+
+    def register_cache(self, core_id: int, cache_axi_handler: Callable[[axi_and_coherence_request], Awaitable[axi_and_coherence_request]]) -> None:
+        """
+        Register a cache controller's AXI handler for snoop communication.
+                
+        Args:
+            core_id: Cache identifier (0, 1, ...)
+            cache_axi_handler: Cache's axi_handler function        
+        """
+
+        self.cache_ports[core_id] = cache_axi_handler
+
+
+    def _entry(self, addr: int) -> DirectoryEntry:
+        """
+        Get directory entry for an address, creating if necessary.
+        
+        Args:
+            addr: Memory address
+        
+        Returns:
+            DirectoryEntry for this address
+        """
+
+        if addr not in self.entries:
+            self.entries[addr] = DirectoryEntry()
+        return self.entries[addr]
+    
+
+
+    async def _send_snoop(self, target_core: int, addr: int, snoop_cmd: CoherenceCmd, requester: int) -> axi_and_coherence_request:
+        """
+        send a snoop message to a specific cache.
+        
+        args:
+            target_core: which cache to snoop (cache id)
+            addr: memory address being snooped
+            snoop_cmd: type of snoop (snoop_bus_rd, snoop_bus_rdx, snoop_bus_upgr)
+            requester: which cache initiated the original request
+        
+        returns:
+            flushed data from target cache as an axi + cohrence cmd
+                    
+        raises:
+            runtimeerror: if target cache doesn't acknowledge snoop
+        """
+
+        # get target cache's axi handler
+        port = self.cache_ports[target_core]
+
+        # build snoop request
+        req = axi_and_coherence_request(
+            mem_valid = True,
+            mem_ready = False,
+            mem_instr = False,  # this is coherence traffic
+            mem_addr = addr,
+            mem_wdata_or_msi_payload = 0,
+            mem_wstrb = 0xF,
+            mem_rdata = 0,
+            coherence_cmd = snoop_cmd,
+            core_id = requester
+        )
+             
+        # send snoop to cache (synchronous call)
+        resp: axi_and_coherence_request = await port(req)
+        
+        # verify cache acknowledged
+        if not resp.mem_ready:
+            raise RuntimeError(f"snoop not acknowledged by core {target_core}")
+        
+        # return any flushed data
+        return resp
+
+
+    async def _bus_rd(self, request: axi_and_coherence_request) -> axi_request:
+        """
+        Handle BUS_RD request (read miss from a cache).
+        
+        Args:
+            requester: Cache ID issuing the request
+            addr: Memory address to read
+        
+        Returns:
+            Data value (from memory or owner cache)        
+        """
+
+        axi_to_mem: axi_request = axi_and_cohrenece_cmd_to_axi(request) 
+
+        entry = self._entry(request.mem_addr)
+
+        # Case 1: INVALID - no cache has it
+        if entry.state == MSIState.INVALID:
+            # Fetch from memory (or default to 0 if never written)
+            entry.state = MSIState.SHARED
+            entry.sharers = 1 << request.core_id  # Set requester bit
+            # return self.memory.get(addr, 0)
+            return await self.memory_axi_handler(axi_to_mem)
+
+        # Case 2: SHARED - one or more caches have clean copies
+        if entry.state == MSIState.SHARED:
+            # Add requester to sharers
+            entry.sharers |= 1 << request.core_id
+            # Data is clean in memory
+            return await self.memory_axi_handler(axi_to_mem)
+
+        # Case 3: MODIFIED - one cache has dirty copy
+        # Get owner cache ID
+        owner = entry.owner()
+        
+        # If there's a valid owner and it's not the axi_and_coherence_request.core_id
+        if owner is not None and owner != request.core_id:
+
+            # Snoop owner to get dirty data
+            flushed = (await self._send_snoop(owner, axi_and_coherence_request.mem_addr, CoherenceCmd.SNOOP_BUS_RD, axi_and_coherence_request.core_id)).mem_rdata
+            
+            # Update memory with flushed data
+            write_request: axi_request = axi_request(
+                mem_valid= True,
+                mem_instr= False,
+                mem_ready= False,
+                mem_addr= request.mem_addr,
+                mem_wdata= flushed,
+                mem_wstrb= 0x0f,
+                mem_rdata=0
+            ) 
+       
+            memory_resp: axi_request = await self.memory_axi_handler(write_request)
+
+            if memory_resp.mem_ready is not True:
+                print("errrororororor")
+
+
+            # Keep owner in sharers (it downgrades to SHARED)
+            entry.sharers |= 1 << owner
+
+        # Transition to SHARED state
+        entry.state = MSIState.SHARED
+        
+        # Add requester to sharers
+        entry.sharers |= 1 << request.core_id
+        
+        # Return data (now clean in memory)
+        read_request: axi_request = axi_request(
+            mem_valid= True,
+            mem_instr= False,
+            mem_ready= False,
+            mem_addr= request.mem_addr,
+            mem_wdata= 0,
+            mem_wstrb= 0x00,
+            mem_rdata= 0
+        ) 
+
+        memory_resp: axi_request = await self.memory_axi_handler(read_request)
+
+        if memory_resp.mem_ready is not True:
+            print("error xd")
+
+        return memory_resp
+
+
+    async def _bus_rdx(self, request: axi_and_coherence_request) -> axi_request:
+        """
+        Handle BUS_RDX request (write miss from a cache).
+        
+        A cache issues BUS_RDX when:
+        - Cache line is INVALID (write miss)
+        - Cache needs data AND exclusive access
+        
+        Directory Action:
+        - Provides data
+        - Invalidates all other copies
+        - Grants exclusive access to requester
+        - Updates state to MODIFIED
+        
+        Args:
+            requester: Cache ID issuing the request
+            addr: Memory address to write
+        
+        Returns:
+            Data value (from memory or owner cache)
+
+        """
+        entry = self._entry(request.mem_addr)
+
+        # read data from address
+        read_request: axi_request = axi_request(
+            mem_valid= True,
+            mem_instr= False,
+            mem_ready= False,
+            mem_addr= request.mem_addr,
+            mem_wdata= 0,
+            mem_wstrb= 0x00,
+            mem_rdata= 0
+        ) 
+
+        data: axi_request = await self.memory_axi_handler(read_request)
+
+        # Case 1: INVALID - no cache has it
+        if entry.state == MSIState.INVALID:
+            # Grant exclusive access
+            entry.state = MSIState.MODIFIED
+            entry.sharers = 1 << request.core_id
+            return data 
+
+        # Case 2: SHARED - invalidate all other sharers
+        if entry.state == MSIState.SHARED:
+            # Snoop all sharers except requester
+            for c in range(self.num_cores):
+                if c != request.core_id and ((entry.sharers >> c) & 1):
+                    # Send invalidation
+                    _ = self._send_snoop(c, request.mem_addr, CoherenceCmd.SNOOP_BUS_RDX, request.core_id)
+            
+            # Grant exclusive access
+            entry.state = MSIState.MODIFIED
+            entry.sharers = 1 << request.core_id
+            return data
+
+        # Case 3: MODIFIED - transfer ownership
+        owner = entry.owner()
+        if owner is not None and owner != request.core_id:
+            # Get dirty data from owner
+            flushed = (await self._send_snoop(owner, request.mem_addr, CoherenceCmd.SNOOP_BUS_RDX, request.core_id)).mem_rdata
+            
+            # Update memory
+            write_request: axi_request = axi_request(
+                mem_valid= True,
+                mem_instr= False,
+                mem_ready= False,
+                mem_addr= request.mem_addr,
+                mem_wdata= flushed,
+                mem_wstrb= 0x0f,
+                mem_rdata=0
+            ) 
+            await self.memory_axi_handler(write_request)
+
+        # Grant exclusive access to requester
+        entry.state = MSIState.MODIFIED
+        entry.sharers = 1 << request.core_id
+        return data
+
+
+    async def _bus_upgr(self, request: axi_and_coherence_request) -> axi_request:
+        """
+        Handle BUS_UPGR request (upgrade from SHARED to MODIFIED).
+        
+        A cache issues BUS_UPGR when:
+        - Cache line is SHARED (already has data)
+        - CPU writes to the line
+        - Cache needs exclusive access but ALREADY has the data
+        
+        Difference from BUS_RDX:
+        - BUS_RDX: Need data + exclusive (cache miss on write)
+        - BUS_UPGR: Already have data, just need exclusive (cache hit on write)
+        
+        Directory Action:
+        - Invalidates all other sharers (not requester)
+        - No data transfer needed (requester already has it)
+        - Updates state to MODIFIED
+        
+        Args:
+            requester: Cache ID issuing the request
+            addr: Memory address being upgraded
+        
+        Returns:
+            Data value from memory (for consistency, though requester has it)        
+        """
+
+        entry = self._entry(request.mem_addr)
+
+        # Normal case: state is SHARED
+        if entry.state == MSIState.SHARED:
+            # Invalidate all other sharers
+            for c in range(self.num_cores):
+                if c != request.core_id and ((entry.sharers >> c) & 1):
+                    _ = self._send_snoop(c, request.mem_addr, CoherenceCmd.SNOOP_BUS_UPGR, request.core_id)
+            
+            # Grant exclusive access
+            entry.state = MSIState.MODIFIED
+            entry.sharers = 1 << request.core_id
+
+
+            read_request: axi_request = axi_request(
+                mem_valid= True,
+                mem_instr= False,
+                mem_ready= False,
+                mem_addr= request.mem_addr,
+                mem_wdata= 0,
+                mem_wstrb= 0x00,
+                mem_rdata= 0
+            ) 
+
+            return await self.memory_axi_handler(read_request)
+            
+        # Fallback: if not SHARED, treat as BUS_RDX
+        # This handles edge cases (e.g., race conditions, protocol violations)
+        return await self._bus_rdx(request)
+
+    def _evict_clean(self, request: axi_and_coherence_request) -> axi_request:
+        """
+        Handle clean eviction (evicting a SHARED line).
+        
+        A cache issues EVICT_CLEAN when:
+        - Evicting a line in SHARED state
+        - No writeback needed (data is clean)
+        
+        Directory Action:
+        - Remove cache from sharers list
+        - If no more sharers, transition to INVALID
+        - If MODIFIED and multiple sharers (error), downgrade to SHARED
+        
+        Args:
+            requester: Cache ID evicting the line
+            addr: Memory address being evicted
+                
+        """
+        entry = self._entry(request.mem_addr)
+        
+        # Remove requester from sharers
+        entry.sharers &= ~(1 << request.core_id)
+        
+        # If no sharers left, transition to INVALID
+        if entry.sharers == 0:
+            entry.state = MSIState.INVALID
+        # Error recovery: MODIFIED but no valid single owner
+        elif entry.state == MSIState.MODIFIED and entry.owner() is None:
+            entry.state = MSIState.SHARED
+
+        return axi_request(
+            mem_valid=True,
+            mem_instr=False,
+            mem_ready=True,  
+            mem_addr=request.mem_addr,
+            mem_wdata=0,
+            mem_wstrb=0,
+            mem_rdata=0 # No data needed for clean eviction
+        )
+
+        
+
+    async def _evict_dirty(self, request: axi_and_coherence_request) -> axi_request:
+        """
+        Handle dirty eviction (evicting a MODIFIED line).
+        
+        A cache issues EVICT_DIRTY when:
+        - Evicting a line in MODIFIED state
+        - Line has dirty data that must be written back
+        
+        Directory Action:
+        - Write back data to memory
+        - Remove cache from sharers
+        - Update directory state appropriately
+        
+        Args:
+            requester: Cache ID evicting the line
+            addr: Memory address being evicted
+            data: Dirty data to write back        
+        """
+
+        # Write back dirty data to memory
+        write_request: axi_request = axi_request(
+            mem_valid= True,
+            mem_instr= False,
+            mem_ready= False,
+            mem_addr= request.mem_addr,
+            mem_wdata= request.mem_wdata_or_msi_payload,
+            mem_wstrb= 0x0f,
+            mem_rdata=0
+        ) 
+        to_return: axi_request = await self.memory_axi_handler(write_request)
+        
+        # Clean up directory entry
+        self._evict_clean(request)
+
+        return to_return
+
+    async def _handle_coherence(self, request: axi_and_coherence_request) -> axi_request:
+        """
+        Dispatch coherence commands to appropriate handlers.
+        
+        This is the main dispatcher for all coherence protocol commands
+        received from caches. It unpacks the command and routes to the
+        appropriate handler.
+        
+        Args:
+            addr: Memory address
+            packed_cmd: Packed coherence command from cache
+        
+        Returns:
+            Response data (relevant for BUS_RD, BUS_RDX, BUS_UPGR)
+
+        Raises:
+            ValueError: If command is not recognized
+        """
+        # Unpack command
+        cmd = request.coherence_cmd 
+        # cmd, requester, payload = unpack_cmd(packed_cmd)
+
+        # Route to appropriate handler
+        if cmd == CoherenceCmd.BUS_RD:
+            return await self._bus_rd(request)
+        
+        if cmd == CoherenceCmd.BUS_RDX:
+            return await self._bus_rdx(request)
+        
+        if cmd == CoherenceCmd.BUS_UPGR:
+            return await self._bus_upgr(request)
+        
+        if cmd == CoherenceCmd.EVICT_CLEAN:
+            return self._evict_clean(request)
+        
+        if cmd == CoherenceCmd.EVICT_DIRTY:
+            return await self._evict_dirty(request)
+
+        # Unknown command
+        raise ValueError(f"unknown coherence cmd {cmd}")
+
+
+    async def axi_handler_for_arbiter(self, request: axi_and_coherence_request) -> axi_request:
+        """
+        Main AXI request handler for directory controller.
+        
+        Routes requests based on mem_instr flag:
+        - mem_instr=True: Coherence traffic (BUS_RD, evictions, etc.)
+        - mem_instr=False: Normal memory read/write
+        
+        Args:
+            request: AXI request from cache or CPU
+        
+        Returns:
+            AXI response with data and mem_ready=True
+        
+       """
+        # Ignore invalid requests
+        if not request.mem_valid:
+            request.mem_ready = False
+            return axi_and_cohrenece_cmd_to_axi(request)
+
+
+        return await self._handle_coherence(request)
+
+        # # Route based on traffic type
+        # if request.mem_instr:
+        #     # Coherence command from cache
+            
+            
+
+        # # Direct memory access (non-coherent)
+        # if request.mem_wstrb == 0:
+        #     # Memory read
+        #     request.mem_rdata = self.memory.get(request.mem_addr, 0)
+        # else:
+        #     # Memory write (with byte-level granularity)
+        #     old_value = self.memory.get(request.mem_addr, 0)
+        #     self.memory[request.mem_addr] = apply_wstrb(
+        #         old_value,
+        #         request.mem_wdata,
+        #         request.mem_wstrb
+        #     )
+        #     request.mem_rdata = self.memory[request.mem_addr]
+
+        # request.mem_ready = True
+        # return request
+    
+
+# external
+import asyncio
+
+# types
+from testcase import test_case
+from typing import List
+
+# hardware emulators
+from CPU import CPU
+
+async def main():
+    # prepare test cases
+    testcases: List[test_case] = []
+    for i in range(10):
+        testcases.append(test_case(i, i, 0b1111))
+
+    # create CPU
+    to_the_moon: CPU = CPU(2, testcases)
+
+    # await the async method
+    x = await to_the_moon.start_sim()
+    print(x)
+
+# run the async main
+asyncio.run(main())
+
+
+
+            
+        
+        
+        
+        
+
+            
+
+    
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+# types
+from .axi_request import axi_request
+
+class MemoryController:
+    def __init__(self):
+        self.sram: dict[int, int] = {}
+
+    async def read(self, address: int) -> int:
+        if address in self.sram:
+            return self.sram[address]
+        else:
+            return 0
+
+    async def write(self, address: int, data: int, write_strobe: int) -> None:
+
+        # break write data into bytes
+        byte0: int = data & 0x000F
+        byte1: int = data & 0x00F0
+        byte2: int = data & 0x0F00
+        byte3: int = data & 0xF000
+
+        # break the write strobe down into binary flags
+        # and use it to build data to write
+        data_to_write: int = 0
+        temp: int = write_strobe
+        
+        # byte 3
+        if temp % 2 == 1:
+            data_to_write = data_to_write | byte3
+        temp = temp // 2
+        
+        # byte 2     
+        if temp % 2 == 1:
+            data_to_write = data_to_write | byte2
+        temp = temp // 2
+
+        # byte 1
+        if temp % 2 == 1:
+            data_to_write = data_to_write | byte1
+        temp = temp // 2
+
+        # byte 0
+        if temp % 2 == 1:
+            data_to_write = data_to_write | byte0
+        temp = temp // 2
+
+        self.sram[address] = data_to_write
+
+        return
+    
+    async def axi_handler(self, request: axi_request) -> axi_request:
+        # we get a valid mem request and handshake
+        if request.mem_valid is True:
+        
+            # read
+            if request.mem_wstrb == 0:
+                request.mem_rdata = await self.read(request.mem_addr)
+                request.mem_ready = True        
+
+            # write 
+            else:
+                await self.write(request.mem_addr, request.mem_wdata, request.mem_wstrb)
+                request.mem_ready = True        
+             
+        return request 
+"""
+MSI Cache Coherence Protocol - State Machine Core Module
+
+This module defines the MSI (Modified-Shared-Invalid) protocol state machine and 
+core data structures used by both cache controllers and the directory controller.
+"""
+
+from dataclasses import dataclass
+from enum import IntEnum
+from typing import Optional
+
+# ============================================================================
+# MSI Protocol States and Events
+# ============================================================================
+
+class MSIState(IntEnum):
+    """
+    MSI cache coherence states.
+    
+    State Meanings:
+    - INVALID: Cache line not present or invalidated (no copy exists)
+    - SHARED: Read-only copy, may be shared with other caches
+    - MODIFIED: Exclusive, dirty copy (must write back on eviction)
+    
+    State Invariants:
+    1. At most one cache can be in MODIFIED for any address
+    2. If one cache is MODIFIED, all others must be INVALID
+    3. Multiple caches can be SHARED simultaneously
+    """
+    INVALID = 0   # No valid copy in this cache
+    SHARED = 1    # Read-only copy (clean)
+    MODIFIED = 2  # Read-write copy (dirty)
+
+
+class ProcessorEvent(IntEnum):
+    """
+    Processor-initiated events (CPU → Cache).
+    
+    These represent CPU memory operations that trigger cache state transitions.
+    
+    PR_RD: Processor Read
+        - CPU wants to read from this address
+        - May cause cache miss (state transition)
+    
+    PR_WR: Processor Write
+        - CPU wants to write to this address
+        - May require exclusive access (upgrade or miss)
+    """
+    PR_RD = 0  # Processor read request
+    PR_WR = 1  # Processor write request
+
+
+class SnoopEvent(IntEnum):
+    """
+    Snoop events (Directory → Cache via snoop messages).
+    
+    These represent coherence operations from other caches that this cache
+    must respond to. Snoops are triggered by the directory when another
+    cache issues a bus transaction.
+    
+    BUS_RD: Another cache is reading (BusRd transaction)
+        - This cache may need to share if in MODIFIED state
+    
+    BUS_RDX: Another cache is writing (BusRdX transaction)
+        - This cache must invalidate and possibly flush dirty data
+    
+    BUS_UPGR: Another cache is upgrading from SHARED to MODIFIED
+        - This cache must invalidate (no flush needed - data already shared)
+    """
+    BUS_RD = 0     # Another cache issued BusRd (read miss)
+    BUS_RDX = 1    # Another cache issued BusRdX (write miss)
+    BUS_UPGR = 2   # Another cache issued BusUpgr (write hit in Shared)
+
+
+class CoherenceCmd(IntEnum):
+    """
+    Coherence command types for cache-directory communication.
+    
+    Commands are divided into two categories:
+    
+    1. Cache → Directory (bus transactions):
+       - BUS_RD: Read miss, need data
+       - BUS_RDX: Write miss, need exclusive access
+       - BUS_UPGR: Upgrade from SHARED to MODIFIED (already have data)
+       - EVICT_CLEAN: Evicting SHARED line (no writeback needed)
+       - EVICT_DIRTY: Evicting MODIFIED line (writeback included)
+    
+    2. Directory → Cache (snoop commands):
+       - SNOOP_BUS_RD: Another cache is reading, share if MODIFIED
+       - SNOOP_BUS_RDX: Another cache is writing, invalidate and flush if MODIFIED
+       - SNOOP_BUS_UPGR: Another cache is upgrading, invalidate
+    
+    Note: Values are chosen to avoid conflicts (snoops start at 17)
+    """
+    # Cache-to-Directory commands (values 1-5)
+    BUS_RD = 1        # Read request (cache miss on read)
+    BUS_RDX = 2       # Read-exclusive request (cache miss on write)
+    BUS_UPGR = 3      # Upgrade request (cache hit on write in SHARED state)
+    EVICT_CLEAN = 4   # Evict SHARED line (no data)
+    EVICT_DIRTY = 5   # Evict MODIFIED line (includes writeback data)
+    
+    # Directory-to-Cache commands (values 17-19, offset to avoid conflicts)
+    SNOOP_BUS_RD = 17    # Snoop: another cache reading
+    SNOOP_BUS_RDX = 18   # Snoop: another cache writing
+    SNOOP_BUS_UPGR = 19  # Snoop: another cache upgrading
+
+
+# ============================================================================
+# State Transition Result
+# ============================================================================
+
+@dataclass
+class TransitionResult:
+    """
+    Result of an MSI state transition.
+    
+    Used by both on_processor_event() and on_snoop_event() to indicate:
+    1. What the new cache state should be
+    2. Whether a coherence command should be issued to the directory
+    3. Whether data needs to be flushed (for snoops only)
+    
+    Fields:
+        next_state: The new MSI state after this transition
+        issue_cmd: Coherence command to send to directory (None if no action needed)
+        flush: Whether to flush data back (for snoop events on MODIFIED lines)
+    
+    Examples:
+        # Read miss in INVALID state
+        TransitionResult(SHARED, BUS_RD, False)
+        
+        # Write hit in MODIFIED state (no bus transaction needed)
+        TransitionResult(MODIFIED, None, False)
+        
+        # Snoop BusRd while MODIFIED (flush data, downgrade to SHARED)
+        TransitionResult(SHARED, None, True)
+    """
+    next_state: MSIState           # New state after transition
+    issue_cmd: Optional[CoherenceCmd] = None  # Command to issue (or None)
+    flush: bool = False            # Whether to flush data (snoop only)
+
+# ============================================================================
+# MSI State Machine - Processor Events
+# ============================================================================
+
+def on_processor_event(state: MSIState, event: ProcessorEvent) -> TransitionResult:
+    """
+    MSI state transition for processor-initiated events (CPU operations).
+    
+    This function implements the core MSI protocol logic for CPU reads and writes.
+    It determines:
+    1. What the new cache state should be
+    2. Whether a bus transaction needs to be issued to the directory
+    
+    State Transition Table:
+    
+    Current State | Event  | Next State | Bus Transaction | Notes
+    --------------|--------|------------|-----------------|---------------------------
+    INVALID       | PR_RD  | SHARED     | BUS_RD          | Read miss, fetch from memory
+    INVALID       | PR_WR  | MODIFIED   | BUS_RDX         | Write miss, get exclusive
+    SHARED        | PR_RD  | SHARED     | None            | Read hit, no action needed
+    SHARED        | PR_WR  | MODIFIED   | BUS_UPGR        | Upgrade to exclusive, invalidate others
+    MODIFIED      | PR_RD  | MODIFIED   | None            | Read hit, data already exclusive
+    MODIFIED      | PR_WR  | MODIFIED   | None            | Write hit, data already exclusive
+    
+    Args:
+        state: Current MSI state of the cache line
+        event: Processor event (PR_RD or PR_WR)
+    
+    Returns:
+        TransitionResult with next_state and optional issue_cmd
+    
+    Example Usage (in CacheController):
+        line = self._line(addr)
+        tr = on_processor_event(line.state, ProcessorEvent.PR_RD)
+        
+        # If command needs to be issued, send to directory
+        if tr.issue_cmd is not None:
+            line.data = self._send_dir_cmd(tr.issue_cmd, addr)
+        
+        # Update cache line state
+        line.state = tr.next_state
+    """
+    
+    # ---- INVALID State ----
+    # Cache line not present - must fetch from memory/directory
+    if state == MSIState.INVALID:
+        if event == ProcessorEvent.PR_RD:
+            # Read miss: Fetch data and transition to SHARED
+            # Issue BUS_RD to directory to get data
+            return TransitionResult(MSIState.SHARED, CoherenceCmd.BUS_RD, False)
+        else:  # PR_WR
+            # Write miss: Fetch data and transition to MODIFIED (exclusive)
+            # Issue BUS_RDX to directory to get data and invalidate others
+            return TransitionResult(MSIState.MODIFIED, CoherenceCmd.BUS_RDX, False)
+    
+    # ---- SHARED State ----
+    # Cache line present in read-only form
+    if state == MSIState.SHARED:
+        if event == ProcessorEvent.PR_RD:
+            # Read hit: Data already present, no action needed
+            return TransitionResult(MSIState.SHARED, None, False)
+        else:  # PR_WR
+            # Write upgrade: Already have data, just need exclusive access
+            # Issue BUS_UPGR to invalidate other sharers (no data transfer)
+            return TransitionResult(MSIState.MODIFIED, CoherenceCmd.BUS_UPGR, False)
+    
+    # ---- MODIFIED State ----
+    # Cache line present in exclusive/dirty form
+    if state == MSIState.MODIFIED:
+        # Both reads and writes hit - data is already exclusive
+        # No bus transaction needed for either operation
+        return TransitionResult(MSIState.MODIFIED, None, False)
+    
+    # Should never reach here if state is valid
+    raise ValueError("invalid MSI state")
+
+
+# ============================================================================
+# MSI State Machine - Snoop Events
+# ============================================================================
+
+def on_snoop_event(state: MSIState, event: SnoopEvent) -> TransitionResult:
+    """
+    MSI state transition for snoop events (coherence messages from directory).
+    
+    This function implements how a cache responds to coherence operations
+    initiated by OTHER caches. The directory sends snoop commands when another
+    cache needs to:
+    - Read data (BUS_RD) - may need to share
+    - Write data (BUS_RDX) - must invalidate
+    - Upgrade to exclusive (BUS_UPGR) - must invalidate
+    
+    State Transition Table:
+    
+    Current State | Snoop Event | Next State | Flush Data? | Notes
+    --------------|-------------|------------|-------------|---------------------------
+    INVALID       | Any         | INVALID    | No          | No copy, ignore snoop
+    SHARED        | BUS_RD      | SHARED     | No          | Other cache reading, stay shared
+    SHARED        | BUS_RDX     | INVALID    | No          | Other cache writing, invalidate
+    SHARED        | BUS_UPGR    | INVALID    | No          | Other cache upgrading, invalidate
+    MODIFIED      | BUS_RD      | SHARED     | Yes         | Other cache reading, share data
+    MODIFIED      | BUS_RDX     | INVALID    | Yes         | Other cache writing, flush & invalidate
+    MODIFIED      | BUS_UPGR    | MODIFIED   | No          | Can't happen (would be SHARED)
+    
+    Args:
+        state: Current MSI state of the cache line
+        event: Snoop event (BUS_RD, BUS_RDX, or BUS_UPGR)
+    
+    Returns:
+        TransitionResult with next_state and flush flag
+        - flush=True means cache must provide data (send back in mem_rdata)
+    
+    Example Usage (in CacheController):
+        line = self._line(addr)
+        tr = on_snoop_event(line.state, SnoopEvent.BUS_RD)
+        
+        # If flush requested, include data in response
+        flush_data = line.data if tr.flush else 0
+        
+        # Update state
+        line.state = tr.next_state
+        
+        # Return flush data to directory
+        return flush_data
+    """
+    
+    # ---- INVALID State ----
+    # No copy of this line - ignore all snoops
+    if state == MSIState.INVALID:
+        # Cache doesn't have this line, no action needed
+        return TransitionResult(MSIState.INVALID, None, False)
+    
+    # ---- SHARED State ----
+    # Read-only copy - may need to invalidate
+    if state == MSIState.SHARED:
+        if event == SnoopEvent.BUS_RD:
+            # Another cache reading: stay SHARED (data is clean in memory)
+            # No flush needed - data will come from memory
+            return TransitionResult(MSIState.SHARED, None, False)
+        else:  # BUS_RDX or BUS_UPGR
+            # Another cache writing/upgrading: must invalidate our copy
+            # No flush needed - data is clean (SHARED is read-only)
+            return TransitionResult(MSIState.INVALID, None, False)
+    
+    # ---- MODIFIED State ----
+    # Exclusive/dirty copy - may need to flush and downgrade/invalidate
+    if state == MSIState.MODIFIED:
+        if event == SnoopEvent.BUS_RD:
+            # Another cache reading: must share
+            # Flush dirty data, downgrade to SHARED
+            # Directory will update memory and send data to requester
+            return TransitionResult(MSIState.SHARED, None, True)
+        
+        if event == SnoopEvent.BUS_RDX:
+            # Another cache writing: must invalidate
+            # Flush dirty data and transition to INVALID
+            # Directory will send data to new owner
+            return TransitionResult(MSIState.INVALID, None, True)
+        
+        # BUS_UPGR while MODIFIED shouldn't happen in MSI protocol
+        # BusUpgr is only issued from SHARED state, and only one cache
+        # can be MODIFIED at a time. If we're MODIFIED, others must be INVALID.
+        # This is a protocol violation, but we handle it gracefully by staying MODIFIED
+        return TransitionResult(MSIState.MODIFIED, None, False)
+    
+    # Should never reach here if state is valid
+    raise ValueError("invalid MSI state")
+
+
+from dataclasses import dataclass
+
+@dataclass
+class test_case:
+    data_addr: int
+    data: int
+    wstb: int
+
+from axi_request import (axi_request, axi_and_coherence_request)
+
+def apply_wstrb(old_value: int, new_value: int, wstrb: int) -> int:
+    """
+    Apply byte-level write strobe to merge new data with old data.
+    
+    This function implements byte-granular writes, allowing partial word updates.
+    Each bit in wstrb controls whether the corresponding byte is updated.
+    
+    Args:
+        old_value: Existing 32-bit value in cache
+        new_value: New 32-bit value from CPU write
+        wstrb: Write strobe mask (4 bits for 4 bytes)
+               Bit 0 = byte 0 (bits [7:0])
+               Bit 1 = byte 1 (bits [15:8])
+               Bit 2 = byte 2 (bits [23:16])
+               Bit 3 = byte 3 (bits [31:24])
+    
+    Returns:
+        Merged 32-bit value with selected bytes updated    
+    """
+    result = old_value
+    for i in range(4):  # 4 bytes in a 32-bit word
+        if (wstrb >> i) & 1:  # Check if bit i is set
+            # Update byte i
+            byte_mask = 0xFF << (8 * i)  # Mask for byte i
+            result = (result & ~byte_mask) | (new_value & byte_mask)
+    return result
+
+def axi_and_cohrenece_cmd_to_axi(to_cast: axi_and_coherence_request) -> axi_request:
+
+    to_return: axi_request = axi_request(to_cast.mem_valid,
+                                         to_cast.mem_instr,
+                                         to_cast.mem_ready,
+                                         to_cast.mem_addr,
+                                         to_cast.mem_wdata_or_msi_payload,
+                                         to_cast.mem_wstrb,
+                                         to_cast.mem_rdata
+                                     )
+
+    return to_return
+        
+# external modules
+import asyncio
+
+# types
+from axi_request import (axi_request, axi_and_coherence_request)
+from typing import List, Callable, Optional, Awaitable
+
+# functions
+from util import (axi_and_cohrenece_cmd_to_axi)
+
+
+class WeightedRoundRobinArbiter:
+
+    def __init__(self, num_requesters: int, weights: List[int], axi_handler: Callable[[axi_and_coherence_request], Awaitable[axi_request]]):
+ 
+        # error checking
+        if len(weights) != num_requesters:
+            raise ValueError(f"Number of weights ({len(weights)}) must match " f"number of requesters ({num_requesters})")
+
+        if any(w <= 0 for w in weights):
+            raise ValueError("All weights must be positive integers")
+
+        
+        # num_requesters: Number of requesters in the system
+        self.num_requesters = num_requesters
+                
+        # weights: List of weights for each requester, defines how many
+        # times a requester gets prioroty
+        self.weights = weights
+
+        # current requester index
+        self.current_index = 0
+
+        # their reminading credits/tickets
+        self.remaining_credits = self.weights[0]
+
+        # area to send chossen axi call to
+        self.axi_send_and_recieve: Callable[[axi_and_coherence_request], Awaitable[axi_request]] = axi_handler
+
+        # find max possible iterations needed for round bin
+        self.max_possible_iterations: int = sum(weights)
+
+        # bit mapping to track that all cores requested
+        self.cores_arrived: int = 0
+        self.cores_axi_requsts: List[Optional[axi_and_coherence_request]] = [None] * self.num_requesters
+
+        # Syncronazation stuff need for coroutines 
+        self.lock_to_wait_for_all_cores = asyncio.Lock()
+        self.all_arrived = asyncio.Event()
+        self.arbitation_done = asyncio.Event()
+
+        # request flags
+        self.request_id: int = -1         
+
+
+    async def axi_handler_arbiter(self, request_axi: axi_and_coherence_request) ->  axi_request:
+
+        # Wait all cores to sumbit something
+        async with self.lock_to_wait_for_all_cores:          
+
+            # mark core as arrived and store its data
+            self.cores_arrived += 1
+            self.cores_axi_requsts[request_axi.core_id] = request_axi
+
+            # all cores arrived
+            if self.cores_arrived == self.num_requesters:
+                # self.cores_arrived = 0
+                self.all_arrived.set()
+
+
+        await self.all_arrived.wait() # this will stall till all cores here
+
+
+        # use core 0 to run abitration, in the verilog this
+        # will be done by a verilog module
+        async with self.lock_to_wait_for_all_cores:
+            if request_axi.core_id == 0:
+                # build requests arr from axi_arr
+                requests_in: List[int] = [] 
+                for axi_request in self.cores_axi_requsts:
+                    # need this cause axi_arr doesnt force type
+                    if axi_request is None:
+                        raise ValueError("axi_requests None")
+
+                    requests_in.append(axi_request.mem_valid)
+
+                # send this into nick arbitrate function
+                requests_out: List[int] = self.arbitrate(requests_in)
+
+                # find core to let through
+                self.request_id = requests_out.index(1)
+                print(f"let {self.request_id} core through")
+                self.arbitation_done.set()
+
+        await self.arbitation_done.wait() 
+
+        # let each core through one by one to check if it got its turn
+        curr_core_axi_packet_temp: Optional[axi_and_coherence_request] = self.cores_axi_requsts[request_axi.core_id]
+
+
+        ## i need to spin here not send back invalid packet !!
+        if curr_core_axi_packet_temp is not None:
+            curr_core_axi_packet: axi_and_coherence_request = curr_core_axi_packet_temp;
+        else:
+            raise TypeError("curr_core_axi_packet is None")
+
+        # see if core was chosen by arbiter
+        if request_axi.core_id == self.request_id:
+            to_return: axi_request = await self.axi_send_and_recieve(curr_core_axi_packet)
+        else:
+            to_return: axi_request = axi_and_cohrenece_cmd_to_axi(curr_core_axi_packet) 
+
+        # clean up
+        async with self.lock_to_wait_for_all_cores:        
+            self.cores_arrived -= 1
+            if self.cores_arrived == 0:
+                self.all_arrived.clear()
+                self.arbitation_done.clear()
+
+        return to_return
+
+        
+    def arbitrate(self, requests: List[int]) -> List[int]:
+
+        # error checker
+        if len(requests) != self.num_requesters:
+            raise ValueError(
+                f"Number of requests ({len(requests)}) must match "
+                f"number of requesters ({self.num_requesters})"
+            )
+        
+        # If no requests, return all zeros
+        if sum(requests) == 0:
+            return [0] * self.num_requesters
+        
+
+        # Search for the next requester with an active request
+        attempts = 0
+        while attempts < self.max_possible_iterations:
+
+            # If current requester has a request, grant it
+            if requests[self.current_index] == 1:
+                grant = [0] * self.num_requesters
+                grant[self.current_index] = 1
+                
+                # Decrement credits
+                self.remaining_credits -= 1
+                
+                # Move to next requester if credits exhausted
+                if self.remaining_credits == 0:
+                    self.current_index = (self.current_index + 1) % self.num_requesters
+                    self.remaining_credits = self.weights[self.current_index]
+                
+                return grant
+
+            # Current requester has no request, move to next
+            else:
+                self.current_index = (self.current_index + 1) % self.num_requesters
+                self.remaining_credits = self.weights[self.current_index]
+                attempts += 1
+        
+        # Fallback (should never reach here with valid inputs)
+        print("error ")
+        raise Exception("abritation hit timeout")

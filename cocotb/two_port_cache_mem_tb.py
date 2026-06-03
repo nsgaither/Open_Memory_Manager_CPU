@@ -1,177 +1,216 @@
-import os
-import random
-import logging
-from pathlib import Path
+`default_nettype none
+`timescale 1ns/1ps
 
-import cocotb
-from cocotb.clock import Clock
-from cocotb.triggers import Timer, RisingEdge, FallingEdge
-from cocotb_tools.runner import get_runner
+module outbound_arbiter (
+    input  logic        clk_i,
+    input  logic        rst_ni,
 
-sim = os.getenv("SIM", "icarus")
+    // ---------- Master port 0 ----------
+    input  logic        m0_valid_i,
+    input  logic [31:0] m0_addr_i,
+    input  logic [31:0] m0_data_i,
+    input  logic [8:0]  m0_cmd_i,
+    output logic        m0_ready_o,
 
-hdl_toplevel = "two_port_cache_mem"
+    // ---------- Master port 1 ----------
+    input  logic        m1_valid_i,
+    input  logic [31:0] m1_addr_i,
+    input  logic [31:0] m1_data_i,
+    input  logic [8:0]  m1_cmd_i,
+    output logic        m1_ready_o,
 
+    // ---------- Cache slave port ----------
+    output logic        cache_valid_o,
+    output logic [31:0] cache_addr_o,
+    output logic [31:0] cache_data_o,
+    output logic [8:0]  cache_cmd_o,
+    input  logic        cache_ready_i
+);
 
-# ============================================================
-# Clock / Reset
-# ============================================================
+    typedef enum logic [1:0] {
+        IDLE    = 2'b00,
+        GRANT_0 = 2'b01,
+        GRANT_1 = 2'b10
+    } arb_state_e;
 
-async def start_clock(dut):
-    cocotb.start_soon(Clock(dut.clk_i, 10, unit="ns").start())
+    arb_state_e state_q, state_d;
 
+    // Round-robin tracker:
+    // 0 => prefer master 0 next
+    // 1 => prefer master 1 next
+    logic rr_q, rr_d;
 
-async def reset(dut):
-    dut.rst_ni.value = 0
+    // Registered cache request
+    logic        cache_valid_q, cache_valid_d;
+    logic [31:0] cache_addr_q,  cache_addr_d;
+    logic [31:0] cache_data_q,  cache_data_d;
+    logic [8:0]  cache_cmd_q,   cache_cmd_d;
 
-    for p in [0, 1]:
-        getattr(dut, f"p{p}_valid_i").value = 0
-        getattr(dut, f"p{p}_ready_i").value = 0
+    // ------------------------------------------------------------
+    // Outputs
+    // ------------------------------------------------------------
 
-    await Timer(100, unit="ns")
-    await RisingEdge(dut.clk_i)
+    assign cache_valid_o = cache_valid_q;
+    assign cache_addr_o  = cache_addr_q;
+    assign cache_data_o  = cache_data_q;
+    assign cache_cmd_o   = cache_cmd_q;
 
-    dut.rst_ni.value = 1
+    // Ready only when transfer completes
+    assign m0_ready_o =
+        (state_q == GRANT_0) &&
+        cache_valid_q &&
+        cache_ready_i;
 
-    for _ in range(520):
-        await RisingEdge(dut.clk_i)
+    assign m1_ready_o =
+        (state_q == GRANT_1) &&
+        cache_valid_q &&
+        cache_ready_i;
 
+    // ------------------------------------------------------------
+    // Sequential logic
+    // ------------------------------------------------------------
 
-# ============================================================
-# Safe port access (WITH TIMEOUT FIX)
-# ============================================================
+    always_ff @(posedge clk_i or negedge rst_ni) begin
+        if (!rst_ni) begin
+            state_q       <= IDLE;
+            rr_q          <= 1'b0;
 
-async def cache_access(dut, port, addr, wdata=0, wstate=0, wtag=0, wstrb=0):
+            cache_valid_q <= 1'b0;
+            cache_addr_q  <= '0;
+            cache_data_q  <= '0;
+            cache_cmd_q   <= '0;
+        end
+        else begin
+            state_q       <= state_d;
+            rr_q          <= rr_d;
 
-    vld = getattr(dut, f"p{port}_valid_i")
-    rdy = getattr(dut, f"p{port}_ready_o")
+            cache_valid_q <= cache_valid_d;
+            cache_addr_q  <= cache_addr_d;
+            cache_data_q  <= cache_data_d;
+            cache_cmd_q   <= cache_cmd_d;
+        end
+    end
 
-    getattr(dut, f"p{port}_addr_i").value   = addr
-    getattr(dut, f"p{port}_wdata_i").value  = wdata
-    getattr(dut, f"p{port}_wstrb_i").value  = wstrb
-    getattr(dut, f"p{port}_wstate_i").value = wstate
-    getattr(dut, f"p{port}_wtag_i").value   = wtag
+    // ------------------------------------------------------------
+    // Combinational next-state logic
+    // ------------------------------------------------------------
 
-    vld.value = 1
-    getattr(dut, f"p{port}_ready_i").value = 1
+    always_comb begin
 
-    # WAIT READY (timeout prevents infinite hang)
-    for _ in range(2000):
-        await RisingEdge(dut.clk_i)
-        if rdy.value == 1:
-            break
-    else:
-        raise RuntimeError(f"PORT{port} TIMEOUT WAITING READY")
+        // Defaults
+        state_d       = state_q;
+        rr_d          = rr_q;
 
-    # WAIT VALID
-    for _ in range(2000):
-        await RisingEdge(dut.clk_i)
+        cache_valid_d = cache_valid_q;
+        cache_addr_d  = cache_addr_q;
+        cache_data_d  = cache_data_q;
+        cache_cmd_d   = cache_cmd_q;
 
-        if getattr(dut, f"p{port}_valid_o").value == 1:
-            rdata  = int(getattr(dut, f"p{port}_rdata_o").value)
-            rtag   = int(getattr(dut, f"p{port}_rtag_o").value)
-            rstate = int(getattr(dut, f"p{port}_rstate_o").value)
-            break
-    else:
-        raise RuntimeError(f"PORT{port} TIMEOUT WAITING VALID")
+        case (state_q)
 
-    vld.value = 0
-    getattr(dut, f"p{port}_ready_i").value = 0
+            // ----------------------------------------------------
+            // IDLE
+            // ----------------------------------------------------
 
-    await RisingEdge(dut.clk_i)
+            IDLE: begin
 
-    return rdata, rtag, rstate
+                // Default to no valid in IDLE unless new request accepted
+                cache_valid_d = 1'b0;
 
+                // Both masters requesting
+                if (m0_valid_i && m1_valid_i) begin
 
-# ============================================================
-# Tests
-# ============================================================
+                    // Round-robin selection
+                    if (rr_q == 1'b0) begin
+                        // Grant master 0
+                        state_d       = GRANT_0;
 
-@cocotb.test()
-async def test_rr_basic(dut):
+                        cache_valid_d = 1'b1;
+                        cache_addr_d  = m0_addr_i;
+                        cache_data_d  = m0_data_i;
+                        cache_cmd_d   = m0_cmd_i;
 
-    await start_clock(dut)
-    await reset(dut)
+                        // Next time prefer master 1
+                        rr_d = 1'b1;
+                    end
+                    else begin
+                        // Grant master 1
+                        state_d       = GRANT_1;
 
-    # simple simultaneous contention
-    task0 = cocotb.start_soon(cache_access(dut, 0, 0x10))
-    task1 = cocotb.start_soon(cache_access(dut, 1, 0x20))
+                        cache_valid_d = 1'b1;
+                        cache_addr_d  = m1_addr_i;
+                        cache_data_d  = m1_data_i;
+                        cache_cmd_d   = m1_cmd_i;
 
-    r0 = await task0
-    r1 = await task1
+                        // Next time prefer master 0
+                        rr_d = 1'b0;
+                    end
+                end
 
-    assert r0 is not None
-    assert r1 is not None
+                // Only master 0 requesting
+                else if (m0_valid_i) begin
+                    state_d       = GRANT_0;
 
+                    cache_valid_d = 1'b1;
+                    cache_addr_d  = m0_addr_i;
+                    cache_data_d  = m0_data_i;
+                    cache_cmd_d   = m0_cmd_i;
 
-@cocotb.test()
-async def test_rr_stress(dut):
+                    // Next contention prefers master 1
+                    rr_d = 1'b1;
+                end
 
-    await start_clock(dut)
-    await reset(dut)
+                // Only master 1 requesting
+                else if (m1_valid_i) begin
+                    state_d       = GRANT_1;
 
-    async def worker(p):
+                    cache_valid_d = 1'b1;
+                    cache_addr_d  = m1_addr_i;
+                    cache_data_d  = m1_data_i;
+                    cache_cmd_d   = m1_cmd_i;
 
-        for _ in range(50):
+                    // Next contention prefers master 0
+                    rr_d = 1'b0;
+                end
+            end
 
-            addr = random.randint(0, 127)
-            wdat = random.randint(0, 0xFFFFFFFF)
+            // ----------------------------------------------------
+            // GRANT_0
+            // ----------------------------------------------------
 
-            await cache_access(dut, p, addr, wdat, 1, 1, 0xF)
-            await cache_access(dut, p, addr)
+            GRANT_0: begin
 
-    t0 = cocotb.start_soon(worker(0))
-    t1 = cocotb.start_soon(worker(1))
+                // Hold request stable until handshake completes
+                if (cache_valid_q && cache_ready_i) begin
+                    state_d       = IDLE;
+                    cache_valid_d = 1'b0;
+                end
+            end
 
-    await t0
-    await t1
-# ============================================================================
-# Runner
-# ============================================================================
+            // ----------------------------------------------------
+            // GRANT_1
+            // ----------------------------------------------------
 
-def test_two_port_cache_mem():
+            GRANT_1: begin
 
-    proj_path = Path(__file__).resolve().parent
-    pdk_root  = Path("../gf180mcu")
+                // Hold request stable until handshake completes
+                if (cache_valid_q && cache_ready_i) begin
+                    state_d       = IDLE;
+                    cache_valid_d = 1'b0;
+                end
+            end
 
-    sources = [
+            // ----------------------------------------------------
+            // Default recovery
+            // ----------------------------------------------------
 
-        pdk_root / "gf180mcuD/libs.ref/gf180mcu_fd_ip_sram/verilog/gf180mcu_fd_ip_sram__sram512x8m8wm1.v",
-        pdk_root / "gf180mcuD/libs.ref/gf180mcu_fd_ip_sram/verilog/gf180mcu_fd_ip_sram__sram64x8m8wm1.v",
+            default: begin
+                state_d       = IDLE;
+                cache_valid_d = 1'b0;
+            end
+        endcase
+    end
 
-        proj_path / "../src/mem_ctrl/mem128x32.sv",
-        proj_path / "../src/mem_ctrl/mem128x4.sv",
-        proj_path / "../src/mem_ctrl/cache_mem.sv",
+endmodule
 
-        proj_path / "../src/mem_ctrl/two_port_cache_mem.sv",
-    ]
-
-    build_args = []
-
-    if sim == "verilator":
-        build_args = [
-            "--timing",
-            "--trace",
-            "--trace-fst",
-            "--trace-structs"
-        ]
-
-    runner = get_runner(sim)
-
-    runner.build(
-        sources=sources,
-        hdl_toplevel=hdl_toplevel,
-        always=True,
-        build_args=build_args,
-        waves=True,
-    )
-
-    runner.test(
-        hdl_toplevel=hdl_toplevel,
-        test_module="two_port_cache_mem_tb",
-        waves=True,
-    )
-
-
-if __name__ == "__main__":
-    test_two_port_cache_mem()
+`default_nettype wire

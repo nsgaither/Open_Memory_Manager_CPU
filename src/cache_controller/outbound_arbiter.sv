@@ -10,14 +10,14 @@ module outbound_arbiter (
     input  logic [31:0] m0_addr_i,
     input  logic [31:0] m0_data_i,
     input  logic [8:0]  m0_cmd_i,
-    output logic        m0_ready_o,   // grant feedback to master 0
+    output logic        m0_ready_o,
 
     // ---------- Master port 1 ----------
     input  logic        m1_valid_i,
     input  logic [31:0] m1_addr_i,
     input  logic [31:0] m1_data_i,
     input  logic [8:0]  m1_cmd_i,
-    output logic        m1_ready_o,   // grant feedback to master 1
+    output logic        m1_ready_o,
 
     // ---------- Cache slave port ----------
     output logic        cache_valid_o,
@@ -27,129 +27,190 @@ module outbound_arbiter (
     input  logic        cache_ready_i
 );
 
-    // -------------------------------------------------------------------------
-    // Internal state
-    // -------------------------------------------------------------------------
-
-    // FSM
     typedef enum logic [1:0] {
-        IDLE    = 2'b00,  // no active grant, waiting for a request
-        GRANT_0 = 2'b01,  // master 0 owns the bus
-        GRANT_1 = 2'b10   // master 1 owns the bus
+        IDLE    = 2'b00,
+        GRANT_0 = 2'b01,
+        GRANT_1 = 2'b10
     } arb_state_e;
 
     arb_state_e state_q, state_d;
 
-    // Round-robin priority bit: 0 → prefer m0 when both request,
-    //                            1 → prefer m1 when both request
-    logic        rr_priority_q, rr_priority_d;
+    // Round-robin tracker:
+    // 0 => prefer master 0 next
+    // 1 => prefer master 1 next
+    logic rr_q, rr_d;
 
-    // Transaction accepted by cache this cycle
-    logic        txn_done;
+    // Registered cache request
+    logic        cache_valid_q, cache_valid_d;
+    logic [31:0] cache_addr_q,  cache_addr_d;
+    logic [31:0] cache_data_q,  cache_data_d;
+    logic [8:0]  cache_cmd_q,   cache_cmd_d;
 
-    // -------------------------------------------------------------------------
-    // Combinational next-state & output logic
-    // -------------------------------------------------------------------------
+    // ------------------------------------------------------------
+    // Outputs
+    // ------------------------------------------------------------
 
-    assign txn_done = cache_valid_o & cache_ready_i;
+    assign cache_valid_o = cache_valid_q;
+    assign cache_addr_o  = cache_addr_q;
+    assign cache_data_o  = cache_data_q;
+    assign cache_cmd_o   = cache_cmd_q;
 
-    always_comb begin
-        // Defaults – hold state, no change to priority
-        state_d      = state_q;
-        rr_priority_d = rr_priority_q;
+    // Ready only when transfer completes
+    assign m0_ready_o =
+        (state_q == GRANT_0) &&
+        cache_valid_q &&
+        cache_ready_i;
 
-        // Cache outputs default to master 0 passthrough (overridden below)
-        cache_valid_o = 1'b0;
-        cache_addr_o  = 32'h0;
-        cache_data_o  = 32'h0;
-        cache_cmd_o   = 9'h0;
+    assign m1_ready_o =
+        (state_q == GRANT_1) &&
+        cache_valid_q &&
+        cache_ready_i;
 
-        m0_ready_o = 1'b0;
-        m1_ready_o = 1'b0;
+    // ------------------------------------------------------------
+    // Sequential logic
+    // ------------------------------------------------------------
 
-        case (state_q)
-
-            // -----------------------------------------------------------------
-            IDLE: begin
-                // Arbitrate: grant to the requester that matches round-robin
-                // priority, or to whichever single port is requesting.
-                if (m0_valid_i && m1_valid_i) begin
-                    // Both requesting – honour round-robin priority
-                    if (rr_priority_q == 1'b0)
-                        state_d = GRANT_0;
-                    else
-                        state_d = GRANT_1;
-                end else if (m0_valid_i) begin
-                    state_d = GRANT_0;
-                end else if (m1_valid_i) begin
-                    state_d = GRANT_1;
-                end
-                // else: stay IDLE
-            end
-
-            // -----------------------------------------------------------------
-            GRANT_0: begin
-                // Drive cache with master 0 signals
-                cache_valid_o = m0_valid_i;
-                cache_addr_o  = m0_addr_i;
-                cache_data_o  = m0_data_i;
-                cache_cmd_o   = m0_cmd_i;
-
-                // Reflect cache back-pressure to master 0
-                m0_ready_o = cache_ready_i;
-
-                if (txn_done) begin
-                    // Transaction complete – rotate priority and re-arbitrate
-                    rr_priority_d = 1'b1;        // next turn favours m1
-                    if (m1_valid_i)
-                        state_d = GRANT_1;        // m1 is waiting, switch now
-                    else if (m0_valid_i)
-                        state_d = GRANT_0;        // m0 has more work, keep it
-                    else
-                        state_d = IDLE;
-                end
-            end
-
-            // -----------------------------------------------------------------
-            GRANT_1: begin
-                // Drive cache with master 1 signals
-                cache_valid_o = m1_valid_i;
-                cache_addr_o  = m1_addr_i;
-                cache_data_o  = m1_data_i;
-                cache_cmd_o   = m1_cmd_i;
-
-                // Reflect cache back-pressure to master 1
-                m1_ready_o = cache_ready_i;
-
-                if (txn_done) begin
-                    rr_priority_d = 1'b0;        // next turn favours m0
-                    if (m0_valid_i)
-                        state_d = GRANT_0;
-                    else if (m1_valid_i)
-                        state_d = GRANT_1;
-                    else
-                        state_d = IDLE;
-                end
-            end
-
-            // -----------------------------------------------------------------
-            default: state_d = IDLE;
-
-        endcase
-    end
-
-    // -------------------------------------------------------------------------
-    // Sequential state registers
-    // -------------------------------------------------------------------------
-
-    always_ff @(posedge clk_i) begin
+    always_ff @(posedge clk_i or negedge rst_ni) begin
         if (!rst_ni) begin
             state_q       <= IDLE;
-            rr_priority_q <= 1'b0;   // m0 has priority after reset
-        end else begin
+            rr_q          <= 1'b0;
+
+            cache_valid_q <= 1'b0;
+            cache_addr_q  <= '0;
+            cache_data_q  <= '0;
+            cache_cmd_q   <= '0;
+        end
+        else begin
             state_q       <= state_d;
-            rr_priority_q <= rr_priority_d;
+            rr_q          <= rr_d;
+
+            cache_valid_q <= cache_valid_d;
+            cache_addr_q  <= cache_addr_d;
+            cache_data_q  <= cache_data_d;
+            cache_cmd_q   <= cache_cmd_d;
         end
     end
 
+    // ------------------------------------------------------------
+    // Combinational next-state logic
+    // ------------------------------------------------------------
+
+    always_comb begin
+
+        // Defaults
+        state_d       = state_q;
+        rr_d          = rr_q;
+
+        cache_valid_d = cache_valid_q;
+        cache_addr_d  = cache_addr_q;
+        cache_data_d  = cache_data_q;
+        cache_cmd_d   = cache_cmd_q;
+
+        case (state_q)
+
+            // ----------------------------------------------------
+            // IDLE
+            // ----------------------------------------------------
+
+            IDLE: begin
+
+                // Default to no valid in IDLE unless new request accepted
+                cache_valid_d = 1'b0;
+
+                // Both masters requesting
+                if (m0_valid_i && m1_valid_i) begin
+
+                    // Round-robin selection
+                    if (rr_q == 1'b0) begin
+                        // Grant master 0
+                        state_d       = GRANT_0;
+
+                        cache_valid_d = 1'b1;
+                        cache_addr_d  = m0_addr_i;
+                        cache_data_d  = m0_data_i;
+                        cache_cmd_d   = m0_cmd_i;
+
+                        // Next time prefer master 1
+                        rr_d = 1'b1;
+                    end
+                    else begin
+                        // Grant master 1
+                        state_d       = GRANT_1;
+
+                        cache_valid_d = 1'b1;
+                        cache_addr_d  = m1_addr_i;
+                        cache_data_d  = m1_data_i;
+                        cache_cmd_d   = m1_cmd_i;
+
+                        // Next time prefer master 0
+                        rr_d = 1'b0;
+                    end
+                end
+
+                // Only master 0 requesting
+                else if (m0_valid_i) begin
+                    state_d       = GRANT_0;
+
+                    cache_valid_d = 1'b1;
+                    cache_addr_d  = m0_addr_i;
+                    cache_data_d  = m0_data_i;
+                    cache_cmd_d   = m0_cmd_i;
+
+                    // Next contention prefers master 1
+                    rr_d = 1'b1;
+                end
+
+                // Only master 1 requesting
+                else if (m1_valid_i) begin
+                    state_d       = GRANT_1;
+
+                    cache_valid_d = 1'b1;
+                    cache_addr_d  = m1_addr_i;
+                    cache_data_d  = m1_data_i;
+                    cache_cmd_d   = m1_cmd_i;
+
+                    // Next contention prefers master 0
+                    rr_d = 1'b0;
+                end
+            end
+
+            // ----------------------------------------------------
+            // GRANT_0
+            // ----------------------------------------------------
+
+            GRANT_0: begin
+
+                // Hold request stable until handshake completes
+                if (cache_valid_q && cache_ready_i) begin
+                    state_d       = IDLE;
+                    cache_valid_d = 1'b0;
+                end
+            end
+
+            // ----------------------------------------------------
+            // GRANT_1
+            // ----------------------------------------------------
+
+            GRANT_1: begin
+
+                // Hold request stable until handshake completes
+                if (cache_valid_q && cache_ready_i) begin
+                    state_d       = IDLE;
+                    cache_valid_d = 1'b0;
+                end
+            end
+
+            // ----------------------------------------------------
+            // Default recovery
+            // ----------------------------------------------------
+
+            default: begin
+                state_d       = IDLE;
+                cache_valid_d = 1'b0;
+            end
+        endcase
+    end
+
 endmodule
+
+`default_nettype wire
