@@ -43,6 +43,9 @@ module cache_controller
 );
  
   // Local parameters
+  // TODO: Replace with real flush handling.
+  assign flush_ready_o = 1'b1;
+
   localparam logic [1:0] S_INVALID  = 2'b00;
   localparam logic [1:0] S_SHARED   = 2'b01;
   localparam logic [1:0] S_MODIFIED = 2'b10;
