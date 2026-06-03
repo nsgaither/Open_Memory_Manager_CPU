@@ -197,6 +197,10 @@ module cache_controller
     .p1_rstate_o(cm_snoop_rstate_o),
     .p1_valid_o(cm_snoop_valid_o),
     .p1_ready_i(cm_snoop_ready_i)
+    `ifdef USE_POWER_PINS
+    ,.VDD(VDD)
+    ,.VSS(VSS)
+    `endif
   );
 
   // outbound arbiter
