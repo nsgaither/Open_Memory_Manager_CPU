@@ -292,7 +292,7 @@ module cache_controller
   // ============================================================
   // Sequential state update
   // ============================================================
-  always_ff @(posedge clk_i or negedge rst_ni) begin
+  always_ff @(posedge clk_i) begin
     if (!rst_ni) begin
       cpu_state_q      <= CPU_IDLE;
       snp_state_q      <= SNP_IDLE;

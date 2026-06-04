@@ -31,7 +31,7 @@ module mmio (
     assign pin_sel = addr_i[2:0];
 
     // write
-    always_ff @(posedge clk_i or negedge rst_ni) begin
+    always_ff @(posedge clk_i) begin
         if(!rst_ni) begin
             data_reg <= 8'h00;
             csr_reg <= 8'h00; // default all to inputs

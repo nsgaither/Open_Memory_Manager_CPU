@@ -240,7 +240,7 @@ module cache_interface #(
     logic [7:0] cpu_id_r;
     assign cpu_id_o = cpu_id_r;
 
-    always_ff @( posedge clk_i or negedge rst_ni ) begin : cpuid_reg
+    always_ff @( posedge clk_i ) begin : cpuid_reg
         if (!rst_ni) begin
             cpu_id_r <= '0;
         end else if ((rmetadata == WhoAmI) & (rvalid_o == 1)) begin

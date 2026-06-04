@@ -16,7 +16,7 @@ module scan_chain #(
 
     logic [WIDTH-1:0] scan_q;
 
-    always_ff @(posedge clk_i or negedge rst_ni) begin : scan_shift_capture
+    always_ff @(posedge clk_i) begin : scan_shift_capture
         if (!rst_ni) begin
             scan_q <= '0;
         end else if (scan_mode_i) begin

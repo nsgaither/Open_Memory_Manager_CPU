@@ -103,7 +103,7 @@ module two_port_cache_mem #(
   // Transaction control (FIX FOR DEADLOCK)
   // ============================================================
 
-  always_ff @(posedge clk_i or negedge rst_ni) begin
+  always_ff @(posedge clk_i) begin
     if (!rst_ni) begin
       busy        <= 0;
       active_port <= 0;

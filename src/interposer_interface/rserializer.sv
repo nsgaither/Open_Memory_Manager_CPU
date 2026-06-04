@@ -27,7 +27,7 @@ module rserializer #(
 
     state current_state, next_state;
 
-    always_ff @( posedge clk_i or negedge rst_ni ) begin : state_reg
+    always_ff @( posedge clk_i ) begin : state_reg
         if (!rst_ni)
             current_state <= IDLE;
         else
@@ -45,7 +45,7 @@ module rserializer #(
 
     // shift arr
     logic [shift_depth-1:0][shift_width-1:0] shift_arr;
-    always_ff @( posedge clk_i or negedge rst_ni ) begin : shifter
+    always_ff @( posedge clk_i ) begin : shifter
         if (!rst_ni) begin
             for (int i = 0; i < shift_depth; i++) begin : rst_shift
                 shift_arr[i] <= '0;
@@ -61,7 +61,7 @@ module rserializer #(
     end
 
     // valid_o logic
-    always_ff @( posedge clk_i or negedge rst_ni ) begin : valid_reg
+    always_ff @( posedge clk_i ) begin : valid_reg
         if (!rst_ni) begin
             valid_o <= '0;
         end else if ((current_state == RECEIVE) & (next_state == IDLE)) begin

@@ -70,7 +70,7 @@ module outbound_arbiter (
     // Sequential logic
     // ------------------------------------------------------------
 
-    always_ff @(posedge clk_i or negedge rst_ni) begin
+    always_ff @(posedge clk_i) begin
         if (!rst_ni) begin
             state_q       <= IDLE;
             rr_q          <= 1'b0;

@@ -26,7 +26,7 @@ module lossy_pipe_stage #(
     assign valid_o = valid_o_r;
     assign data_o  = data_r;
 
-    always_ff @(posedge clk_i or negedge rst_ni) begin
+    always_ff @(posedge clk_i) begin
         if (!rst_ni) begin
             valid_o_r <= 1'b0;
         end else begin
@@ -38,7 +38,7 @@ module lossy_pipe_stage #(
         end
     end
 
-    always_ff @(posedge clk_i or negedge rst_ni) begin
+    always_ff @(posedge clk_i) begin
         if (!rst_ni) begin
             data_r <= '0;
         end else if (valid_i) begin

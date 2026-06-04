@@ -83,7 +83,7 @@ module sp_addr_handler (
     // flush logic
     logic [31:0] flush_addr_r;
     logic        flush_valid_r;
-    always_ff @( posedge clk_i or negedge rst_ni ) begin : flush_reg
+    always_ff @( posedge clk_i ) begin : flush_reg
         if (!rst_ni) begin
             flush_addr_r <= '0;
             flush_valid_r <= '0;

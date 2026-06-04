@@ -42,7 +42,7 @@ module tserializer #(
 
     state current_state, next_state;
 
-    always_ff @( posedge clk_i or negedge rst_ni ) begin : state_reg
+    always_ff @( posedge clk_i ) begin : state_reg
         if (!rst_ni)
             current_state <= IDLE;
         else
@@ -60,7 +60,7 @@ module tserializer #(
 
     // message length
     logic [depth_cnt_width-1:0] curr_msg_len;
-    always_ff @( posedge clk_i or negedge rst_ni ) begin : msg_length_reg
+    always_ff @( posedge clk_i ) begin : msg_length_reg
         if (!rst_ni) curr_msg_len <= '0;
         else if (current_state != SEND) begin
             case (msg_type)
@@ -76,7 +76,7 @@ module tserializer #(
     // message counter
     logic [depth_cnt_width-1:0] count;
 
-    always_ff @( posedge clk_i or negedge rst_ni ) begin : msg_cntr
+    always_ff @( posedge clk_i ) begin : msg_cntr
         if (!rst_ni) begin
             count <= '0;
         end else if (current_state != SEND) begin
@@ -90,7 +90,7 @@ module tserializer #(
 
     // shift reg
     logic [shift_depth-1:0][shift_width-1:0] shift_arr;
-    always_ff @( posedge clk_i or negedge rst_ni ) begin : shifter
+    always_ff @( posedge clk_i ) begin : shifter
         if (!rst_ni) begin
             for (int i = 0; i < shift_depth; i++) begin : rst_shift
                 shift_arr[i] <= '0;
