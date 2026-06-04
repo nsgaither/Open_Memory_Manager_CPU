@@ -17,7 +17,6 @@ ENV = {
 COCOTB_DIR = Path(__file__).resolve().parent
 
 TESTBENCHES = [
-    "digital_dll_tb",
     "cache_mem_tb",
     "cache_sram_test",
     "two_port_cache_mem_tb",

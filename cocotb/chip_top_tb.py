@@ -322,7 +322,6 @@ def chip_top_runner():
             proj_path / "../src/chip_top.sv",
             proj_path / "../src/chip_core.sv",
             proj_path / "../src/dft/scan_chain.sv",
-            proj_path / "../src/clocking/digital_dll.sv",
             proj_path / "../ip/picorv32/picorv32.v",
             proj_path / "../src/sp_addr_handling/sp_addr_handler.sv",
             proj_path / "../src/sp_addr_handling/mmio.sv",

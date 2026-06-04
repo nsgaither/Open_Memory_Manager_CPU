@@ -48,28 +48,8 @@ module chip_core #(
     assign scan_enable = bidir_in[SCAN_ENABLE_ID];
     assign scan_in     = bidir_in[SCAN_IN_ID];
  
-    localparam DLL_NUM_TAPS = 16;
-    localparam DLL_LOCK_COUNT_MAX = 16;
-    localparam DLL_INITIAL_TAP = 8;
-    localparam DLL_TAP_WIDTH = (DLL_NUM_TAPS <= 2) ? 1 : $clog2(DLL_NUM_TAPS);
-
     wire clk_i;
-    (* keep = "true" *) logic dll_locked;
-    (* keep = "true" *) logic [DLL_TAP_WIDTH-1:0] dll_tap;
-
-    digital_dll #(
-        .NUM_TAPS       (DLL_NUM_TAPS),
-        .LOCK_COUNT_MAX (DLL_LOCK_COUNT_MAX),
-        .INITIAL_TAP    (DLL_INITIAL_TAP)
-    ) u_digital_dll (
-        .clk_ref_i (clk),
-        .rst_ni    (rst_n),
-        .enable_i  (1'b1),
-        .bypass_i  (scan_mode),
-        .clk_o     (clk_i),
-        .locked_o  (dll_locked),
-        .tap_o     (dll_tap)
-    );
+    assign clk_i = clk;
 
     // The cache SRAM wrappers clear themselves after reset. Hold the CPU in
     // reset until the longest clear sequence, mem128x32, has reached IDLE.
@@ -84,7 +64,7 @@ module chip_core #(
     assign memory_ready = (mem_init_count == MEM_INIT_COUNT_MAX);
     assign cores_en = memory_ready;
 
-    always_ff @(posedge clk_i or negedge rst_n) begin
+    always_ff @(posedge clk_i) begin
         if (!rst_n) begin
             mem_init_count <= '0;
         end else if (!memory_ready) begin
@@ -371,8 +351,6 @@ module chip_core #(
     always_comb begin : scan_capture_mux
         scan_capture_data = '0;
 
-        scan_capture_data[0]       = dll_locked;
-        scan_capture_data[4:1]     = dll_tap;
         scan_capture_data[5]       = memory_ready;
         scan_capture_data[6]       = cores_en;
         scan_capture_data[7]       = cpu_resetn;
