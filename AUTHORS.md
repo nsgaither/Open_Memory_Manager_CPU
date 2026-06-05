@@ -11,7 +11,7 @@ All categories arranged alphabetically.
 
 ## Primary Team
 * Nicholas Gaither \<nicholas.gaither@gmail.com\>
-* Albert Felix
-* Saanj Shetty
-* Jack Wong
-* Rishikesh Sethuraman
+* Albert Felix \<albertfelix2005@gmail\>
+* Saanj Shetty \<saanj135@gmail.com\>
+* Jack Wong \<jac.wong.k@gmail.com\>
+* Rishikesh Sethuraman \<rishikesh.sethuraman@gmail.com\>
