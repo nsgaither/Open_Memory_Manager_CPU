@@ -15,6 +15,10 @@ pdk_root = Path(os.getenv("PDK_ROOT", Path("../gf180mcu").resolve()))
 pdk = os.getenv("PDK", "gf180mcuD")
 scl = os.getenv("SCL", "gf180mcu_fd_sc_mcu7t5v0")
 gl = os.getenv("GL", "0") == "1"
+sdf = os.getenv("SDF", "0") == "1"
+sdf_file = os.getenv("SDF_FILE", "")
+sdf_corner = os.getenv("SDF_CORNER", "max_tt_025C_5v00")
+sdf_interconnect = os.getenv("SDF_INTERCONNECT", "0") == "1"
 slot = os.getenv("SLOT", "0p5x0p5")
 
 hdl_toplevel = "chip_top"
@@ -83,6 +87,21 @@ def get_child(parent, *names):
 def gl_pad2core(dut, pad):
     escaped = rf"\bidir_PAD2CORE[{pad}] "
     return get_child(dut, escaped, escaped.rstrip(), f"bidir_PAD2CORE[{pad}]")
+
+
+def filtered_sdf_without_interconnect(source_sdf, build_dir):
+    """Create an Icarus-friendly SDF with INTERCONNECT records removed."""
+
+    build_dir.mkdir(parents=True, exist_ok=True)
+    filtered_sdf = build_dir / f"{source_sdf.stem}.no_interconnect.sdf"
+
+    with source_sdf.open() as src, filtered_sdf.open("w") as dst:
+        for line in src:
+            if line.lstrip().startswith("(INTERCONNECT "):
+                continue
+            dst.write(line)
+
+    return filtered_sdf
 
 
 async def start_and_reset(dut):
@@ -312,11 +331,28 @@ def chip_top_runner():
 
     if gl:
         sources += [
-            pdk_root / pdk / "libs.ref" / scl / "verilog" / f"{scl}.v",
             pdk_root / pdk / "libs.ref" / scl / "verilog" / "primitives.v",
+            pdk_root / pdk / "libs.ref" / scl / "verilog" / f"{scl}.v",
             proj_path / f"../final/pnl/{hdl_toplevel}.pnl.v",
         ]
-        defines = {"FUNCTIONAL": True, "USE_POWER_PINS": True}
+        defines = {"USE_POWER_PINS": True}
+        if not sdf:
+            defines["FUNCTIONAL"] = True
+
+        if sdf:
+            if not sdf_file:
+                raise RuntimeError(
+                    "SDF=1 requires SDF_FILE to be set. "
+                    "Run: make sim-sdf SDF_CORNER=<corner>"
+                )
+            annotation_sdf = Path(sdf_file)
+            if sim == "icarus" and not sdf_interconnect:
+                annotation_sdf = filtered_sdf_without_interconnect(
+                    annotation_sdf,
+                    proj_path / "sim_build",
+                )
+            sources += [proj_path / "sdf_annotate.v"]
+            defines["SDF_FILE"] = str(annotation_sdf)
     else:
         sources += [
             proj_path / "../src/chip_top.sv",
@@ -343,19 +379,45 @@ def chip_top_runner():
     sources += [
         pdk_root / pdk / "libs.ref/gf180mcu_fd_io/verilog/gf180mcu_fd_io.v",
         pdk_root / pdk / "libs.ref/gf180mcu_fd_io/verilog/gf180mcu_ws_io.v",
-        pdk_root
-        / pdk
-        / "libs.ref/gf180mcu_fd_ip_sram/verilog/gf180mcu_fd_ip_sram__sram512x8m8wm1.v",
-        pdk_root
-        / pdk
-        / "libs.ref/gf180mcu_fd_ip_sram/verilog/gf180mcu_fd_ip_sram__sram64x8m8wm1.v",
         proj_path / "../ip/gf180mcu_ws_ip__id/vh/gf180mcu_ws_ip__id.v",
         proj_path / "../ip/gf180mcu_ws_ip__logo/vh/gf180mcu_ws_ip__logo.v",
     ]
 
+    if sdf:
+        sources += [
+            proj_path / "models/gf180_sram512x8_model.sv",
+            proj_path / "models/gf180_sram64x8_model.sv",
+        ]
+    else:
+        sources += [
+            pdk_root
+            / pdk
+            / "libs.ref/gf180mcu_fd_ip_sram/verilog/gf180mcu_fd_ip_sram__sram512x8m8wm1.v",
+            pdk_root
+            / pdk
+            / "libs.ref/gf180mcu_fd_ip_sram/verilog/gf180mcu_fd_ip_sram__sram64x8m8wm1.v",
+        ]
+
     build_args = []
     if sim == "icarus":
         build_args = ["-g2012"]
+        if sdf:
+            corner_name = sdf_corner.lower()
+            if corner_name.startswith("max_"):
+                sdf_delay_mode = "max"
+            elif corner_name.startswith("min_"):
+                sdf_delay_mode = "min"
+            else:
+                sdf_delay_mode = "typ"
+            build_args += [
+                "-gspecify",
+                "-T",
+                sdf_delay_mode,
+                "-s",
+                "sdf_annotate_shim",
+            ]
+            if sdf_interconnect:
+                build_args += ["-ginterconnect"]
     elif sim == "verilator":
         build_args = ["--timing", "--trace", "--trace-fst", "--trace-structs"]
 
@@ -370,9 +432,14 @@ def chip_top_runner():
         waves=True,
     )
 
+    plusargs = []
+    if sdf:
+        plusargs += ["+sdf_verbose", "+maxdelays"]
+
     runner.test(
         hdl_toplevel=hdl_toplevel,
         test_module="chip_top_tb",
+        plusargs=plusargs,
         waves=True,
     )
 

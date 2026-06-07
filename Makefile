@@ -74,6 +74,37 @@ sim-gl: ## Run gate-level simulation with cocotb (after final views are populate
 	cd cocotb; GL=1 PDK_ROOT=${PDK_ROOT} PDK=${PDK} SLOT=${SLOT} python3 chip_top_tb.py
 .PHONY: sim-gl
 
+SDF_CORNER ?= max_tt_025C_5v00
+SDF_FILE ?= $(MAKEFILE_DIR)/final/sdf/$(SDF_CORNER)/$(TOP)__$(SDF_CORNER).sdf
+SDF_INTERCONNECT ?= 0
+
+sim-sdf: ## Run gate-level SDF timing simulation (SDF_CORNER=max_tt_025C_5v00)
+	@echo "Running SDF gate-level timing simulation (corner: $(SDF_CORNER))..."
+	@if [ ! -f "$(SDF_FILE)" ]; then \
+		echo "Error: SDF file not found at $(SDF_FILE)"; \
+		echo "Available corners:"; \
+		ls "$(MAKEFILE_DIR)/final/sdf/"; \
+		echo "Usage: make sim-sdf SDF_CORNER=max_ff_n40C_5v50"; \
+		exit 1; \
+	fi
+	@mkdir -p cocotb/sim_build
+	@cd cocotb; \
+		GL=1 SDF=1 SDF_FILE=$(SDF_FILE) SDF_CORNER=$(SDF_CORNER) SDF_INTERCONNECT=$(SDF_INTERCONNECT) PDK_ROOT=${PDK_ROOT} PDK=${PDK} SLOT=${SLOT} \
+		python3 chip_top_tb.py > sim_build/chip_top_sdf.log 2>&1; \
+		status=$$?; \
+		grep -E "SDF: annotating|TESTS=" sim_build/chip_top_sdf.log || true; \
+		if [ $$status -ne 0 ]; then \
+			echo "sim-sdf failed; last 80 log lines:"; \
+			tail -n 80 sim_build/chip_top_sdf.log; \
+		fi; \
+		echo "Full sim-sdf log: cocotb/sim_build/chip_top_sdf.log"; \
+		exit $$status
+.PHONY: sim-sdf
+
+sim-sdf-view: ## View SDF simulation waveforms in GTKWave
+	gtkwave cocotb/sim_build/chip_top.fst
+.PHONY: sim-sdf-view
+
 sim-view: ## View simulation waveforms in GTKWave
 	gtkwave cocotb/sim_build/chip_top.fst
 .PHONY: sim-view
