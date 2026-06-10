@@ -53,7 +53,7 @@ def test_on_snoop_event_state_machine():
     proj_path = Path(__file__).resolve().parent
 
     sources = [
-        proj_path / "../src/msi_protocol/on_snoop_event_state_machine.sv",
+        proj_path / "../src/cache_controller/on_snoop_event_state_machine.sv",
     ]
 
     build_args = []
@@ -79,5 +79,4 @@ def test_on_snoop_event_state_machine():
 
 if __name__ == "__main__":
     test_on_snoop_event_state_machine()
-
 

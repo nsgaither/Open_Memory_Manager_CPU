@@ -144,10 +144,6 @@ test-mem128x32: ## Run mem128x32 cocotb testbench
 	cd cocotb; PDK_ROOT=${PDK_ROOT} PDK=${PDK} SLOT=${SLOT} python3 mem128x32_tb.py
 .PHONY: test-mem128x32
 
-test-mem-ctrl-512: ## Run mem_ctrl_512x32 cocotb testbench
-	cd cocotb; PDK_ROOT=${PDK_ROOT} PDK=${PDK} SLOT=${SLOT} python3 mem_ctrl_512x32_tb.py
-.PHONY: test-mem-ctrl-512
-
 test-two-port-cache-mem: ## Run two_port_cache_mem cocotb testbench
 	cd cocotb; PDK_ROOT=${PDK_ROOT} PDK=${PDK} SLOT=${SLOT} python3 two_port_cache_mem_tb.py
 .PHONY: test-two-port-cache-mem
@@ -156,7 +152,19 @@ test-mem-ctrl-128x4: ## Run mem_ctrl_128x4 cocotb testbench
 	cd cocotb; PDK_ROOT=${PDK_ROOT} PDK=${PDK} SLOT=${SLOT} python3 test_mem_ctrl_128x4.py
 .PHONY: test-mem-ctrl-128x4
 
-test-all: ## Run all cocotb testbenches via test_all_cocotb.py
+test-on-processor-event-state-machine: ## Run processor-event MSI state-machine cocotb testbench
+	cd cocotb; PDK_ROOT=${PDK_ROOT} PDK=${PDK} SLOT=${SLOT} python3 on_processor_event_state_machine_tb.py
+.PHONY: test-on-processor-event-state-machine
+
+test-on-snoop-event-state-machine: ## Run snoop-event MSI state-machine cocotb testbench
+	cd cocotb; PDK_ROOT=${PDK_ROOT} PDK=${PDK} SLOT=${SLOT} python3 on_snoop_event_state_machine_tb.py
+.PHONY: test-on-snoop-event-state-machine
+
+test-sp-handler: ## Run special-address handler cocotb testbench
+	cd cocotb; PDK_ROOT=${PDK_ROOT} PDK=${PDK} SLOT=${SLOT} python3 sp_handler_tb.py
+.PHONY: test-sp-handler
+
+test-all: ## Run all RTL cocotb testbenches via test_all_cocotb.py
 	cd cocotb; PDK_ROOT=${PDK_ROOT} PDK=${PDK} SLOT=${SLOT} python3 test_all_cocotb.py
 .PHONY: test-all
 

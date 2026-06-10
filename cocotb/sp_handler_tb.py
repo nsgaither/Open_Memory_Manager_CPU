@@ -41,7 +41,7 @@ async def cpu_write(dut, addr, data, strobe=0xF):
     dut.mem_valid.value = 1
     
     # Wait for ready
-    while not dut.mem_ready.value:
+    while int(dut.mem_ready.value) == 0:
         await RisingEdge(dut.clk_i)
     
     await RisingEdge(dut.clk_i)
@@ -55,7 +55,7 @@ async def cpu_read(dut, addr):
     dut.mem_wstrb.value = 0
     dut.mem_valid.value = 1
 
-    while not dut.mem_ready.value:
+    while int(dut.mem_ready.value) == 0:
         print(f"\n\n\n\ncpu_read\n\n\n\n")
         await RisingEdge(dut.clk_i)
     
@@ -79,14 +79,20 @@ async def thorough_mmio_test(dut):
 
     # 2. Test Flush Logic (New Feature)
     dut._log.info("Testing Flush Mechanism...")
-    await cpu_write(dut, 0x8000_0020, 0x12345678) # Write to flush addr
+    dut.mem_addr.value = 0x8000_0020
+    dut.mem_wdata.value = 0x12345678
+    dut.mem_wstrb.value = 0xF
+    dut.mem_valid.value = 1
     await RisingEdge(dut.clk_i)
-    # Note: Using the typo 'flush_vaild_o' if you haven't fixed it in RTL yet
+    await Timer(1, unit="ns")
     assert dut.flush_valid_o.value == 1, "Flush valid did not assert"
     
     # Pulse flush_ready to clear it
+    dut.mem_valid.value = 0
+    dut.mem_wstrb.value = 0
     dut.flush_ready_i.value = 1
     await RisingEdge(dut.clk_i)
+    await Timer(1, unit="ns")
     dut.flush_ready_i.value = 0
     await RisingEdge(dut.clk_i)
     assert dut.flush_valid_o.value == 0, "Flush valid did not clear after ready"
@@ -150,8 +156,8 @@ def sp_handler_tb_runner():
         sources += [os.path.join(pdk_lib, f) for f in [f"{scl}.v", f"primitives.v"]]
     else:
         sources = [
-            proj_path / "../src/mmio/mmio.sv",
-            proj_path / "../src/mmio/sp_addr_handler.sv"
+            proj_path / "../src/sp_addr_handling/mmio.sv",
+            proj_path / "../src/sp_addr_handling/sp_addr_handler.sv"
         ]
 
     build_args = []
@@ -173,4 +179,3 @@ def sp_handler_tb_runner():
 
 if __name__ == "__main__":
     sp_handler_tb_runner()
-    

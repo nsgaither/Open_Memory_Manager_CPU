@@ -103,7 +103,7 @@ class CacheMemGolden:
 # ---------------------------------------------------------------------------
 
 @cocotb.test()
-async def test_cache_mem_write_read(dut):
+async def cache_mem_write_read(dut):
     """Random write/read pairs across the full address space."""
     logger = logging.getLogger("cache_mem_tb")
     golden = CacheMemGolden()
@@ -134,11 +134,11 @@ async def test_cache_mem_write_read(dut):
             f"[{i}] rstate @ {addr:#x}: DUT={dut_rstate} GOLDEN={g_rstate}"
         )
 
-    logger.info("test_cache_mem_write_read PASSED (500 transactions)")
+    logger.info("cache_mem_write_read PASSED (500 transactions)")
 
 
 @cocotb.test()
-async def test_cache_mem_wstrb(dut):
+async def cache_mem_wstrb(dut):
     """Partial byte-enable must not disturb untouched bytes."""
     logger = logging.getLogger("cache_mem_tb")
     golden = CacheMemGolden()
@@ -160,11 +160,11 @@ async def test_cache_mem_wstrb(dut):
     assert dut_rdata == g_rdata, f"DUT={dut_rdata:#010x} GOLDEN={g_rdata:#010x}"
     assert g_rdata == 0xFFFFFFAB, f"golden sanity: {g_rdata:#010x}"
 
-    logger.info("test_cache_mem_wstrb PASSED")
+    logger.info("cache_mem_wstrb PASSED")
 
 
 @cocotb.test()
-async def test_cache_mem_read_no_tag_corrupt(dut):
+async def cache_mem_read_no_tag_corrupt(dut):
     """Reads must not overwrite tag/state (regression for missing read_en)."""
     logger = logging.getLogger("cache_mem_tb")
     golden = CacheMemGolden()
@@ -185,11 +185,11 @@ async def test_cache_mem_read_no_tag_corrupt(dut):
         assert dut_rtag   == g_rtag,   f"read {i}: rtag   {dut_rtag} != {g_rtag}"
         assert dut_rstate == g_rstate, f"read {i}: rstate {dut_rstate} != {g_rstate}"
 
-    logger.info("test_cache_mem_read_no_tag_corrupt PASSED")
+    logger.info("cache_mem_read_no_tag_corrupt PASSED")
 
 
 @cocotb.test()
-async def test_cache_mem_overwrite(dut):
+async def cache_mem_overwrite(dut):
     """Last write wins across repeated overwrites."""
     logger = logging.getLogger("cache_mem_tb")
     golden = CacheMemGolden()
@@ -212,14 +212,14 @@ async def test_cache_mem_overwrite(dut):
     assert dut_rtag   == g_rtag,   f"rtag:   {dut_rtag} != {g_rtag}"
     assert dut_rstate == g_rstate, f"rstate: {dut_rstate} != {g_rstate}"
 
-    logger.info("test_cache_mem_overwrite PASSED")
+    logger.info("cache_mem_overwrite PASSED")
 
 
 # ---------------------------------------------------------------------------
 # Runner
 # ---------------------------------------------------------------------------
 
-def test_cache_mem():
+def cache_mem_runner():
     proj_path = Path(__file__).resolve().parent
     pdk_root  = Path("../gf180mcu")
 
@@ -251,4 +251,4 @@ def test_cache_mem():
 
 
 if __name__ == "__main__":
-    test_cache_mem()
+    cache_mem_runner()
