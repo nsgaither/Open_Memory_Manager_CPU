@@ -27,27 +27,27 @@ This is why the cocotb testbench samples outputs **before** the rising edge.
 
 ### Inputs
 
-- `clk_i`  
+- `clk_i`
   Clock.
 
-- `reset_i`  
+- `reset_i`
   Active high reset. Resets internal state to `I`.
 
-- `current_state [1:0]`  
+- `current_state [1:0]`
   Present in the interface for integration, but **not used** by this implementation. The internal state register `CS` is the state source of truth.
 
-- `proc_valid`  
+- `proc_valid`
   When high, a processor event is present this cycle.
 
-- `proc_event`  
+- `proc_event`
   Processor event encoding:
   - `PR_RD` (0): processor read
   - `PR_WR` (1): processor write
 
-- `snoop_valid`  
+- `snoop_valid`
   When high, a snoop event is present this cycle.
 
-- `snoop_event [1:0]`  
+- `snoop_event [1:0]`
   Snoop event encoding:
   - `BUS_RD` (0): another cache is reading
   - `BUS_RDX` (1): another cache requests exclusive ownership
@@ -55,16 +55,16 @@ This is why the cocotb testbench samples outputs **before** the rising edge.
 
 ### Outputs
 
-- `next_state [1:0]`  
+- `next_state [1:0]`
   Combinational next state `NS`.
 
-- `cmd_valid`  
+- `cmd_valid`
   Indicates the module is issuing a cache initiated coherence request during a **processor event**.
 
-- `issue_cmd [2:0]`  
+- `issue_cmd [2:0]`
   Coherence command encoding. Only meaningful when `cmd_valid=1`.
 
-- `flush`  
+- `flush`
   Indicates the cache must flush or supply dirty data on a snoop (only asserted when current state is `M` and snoop requires it).
 
 ## Encodings
@@ -150,7 +150,7 @@ The testbench includes an explicit illegal input test that ensures `flush` and `
 
 ## Cocotb verification
 
-The cocotb testbench drives the RTL and compares results against a golden Python reference model in `msi_v2.py`.
+The cocotb testbench drives the RTL and compares results against a golden Python reference model in `msi.py`.
 
 ### Golden model
 
@@ -179,28 +179,28 @@ All transition outputs are sampled **before** the rising clock edge:
 
 ### Tests included
 
-1. `test_reset`  
+1. `test_reset`
    Checks outputs are idle after reset and `next_state=INVALID`.
 
-2. `test_all_processor_transitions`  
+2. `test_all_processor_transitions`
    Exhaustively checks all 6 state x processor event combinations.
 
-3. `test_all_snoop_transitions`  
+3. `test_all_snoop_transitions`
    Exhaustively checks all 9 state x snoop event combinations.
 
-4. `test_idle_no_valid`  
+4. `test_idle_no_valid`
    With both valids low, state must hold and outputs must be idle.
 
-5. `test_both_valid_illegal`  
+5. `test_both_valid_illegal`
    Drives both valids high and asserts `flush` and `cmd_valid` are never both 1.
 
-6. `test_sequential_transitions`  
+6. `test_sequential_transitions`
    Runs a realistic sequence:
    - I + PR_RD -> S
    - S + PR_WR -> M
    - M + BUS_RDX -> I
 
-7. `test_modified_busupgr_protocol_violation`  
+7. `test_modified_busupgr_protocol_violation`
    Verifies `M + BUS_UPGR` is handled gracefully.
 
 ## Running the simulation

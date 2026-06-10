@@ -9,8 +9,8 @@ from cocotb.triggers import Timer, Edge, RisingEdge, FallingEdge, ClockCycles
 from cocotb_tools.runner import get_runner
 
 # golden model
-from emulation.msi_v2 import MSIState, ProcessorEvent, TransitionResult # types
-from emulation.msi_v2 import on_processor_event # function
+from emulation.msi import MSIState, ProcessorEvent, TransitionResult # types
+from emulation.msi import on_processor_event # function
 
 sim = os.getenv("SIM", "icarus")
 pdk_root = Path("../gf180mcu")
@@ -39,7 +39,7 @@ async def test_mem_ctrl_against_golden(dut):
             # check output with golden
             golden: TransitionResult = on_processor_event(state, event)
 
-            await Timer(1, unit="ns") # time to propagate outputs  
+            await Timer(1, unit="ns") # time to propagate outputs
 
             # check next state
             assert int(dut.next_state_o.value) == int(golden.next_state), \
@@ -52,10 +52,10 @@ async def test_mem_ctrl_against_golden(dut):
             else:
                 assert int(dut.issue_cmd_valid_o.value) == 1, \
                     f"there should be cmd issued"
-                
+
                 assert int(dut.issue_cmd_o.value) == int(golden.issue_cmd), \
                 f"State mismatch: DUT={dut.issue_cmd_o.value}, GOLDEN={golden.issue_cmd}"
-            
+
     logger.info("Done!")
 
 
@@ -71,7 +71,7 @@ def test_on_processor_event_state_machine():
         pass
     if sim == "verilator":
         build_args = ["--timing", "--trace", "--trace-fst", "--trace-structs"]
-        
+
     runner = get_runner(sim)
     runner.build(
         sources=sources,

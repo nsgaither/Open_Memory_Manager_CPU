@@ -9,7 +9,7 @@ from cocotb.triggers import Timer, Edge, RisingEdge, FallingEdge, ClockCycles
 from cocotb_tools.runner import get_runner
 
 # golden model
-from emulation.memory_v2 import MemoryController
+from emulation.memory import MemoryController
 
 sim = os.getenv("SIM", "icarus")
 pdk_root = Path(os.getenv("PDK_ROOT", "../gf180mcu"))

@@ -9,8 +9,8 @@ from cocotb.triggers import Timer, Edge, RisingEdge, FallingEdge, ClockCycles
 from cocotb_tools.runner import get_runner
 
 # golden model
-from emulation.msi_v2 import MSIState, SnoopEvent, TransitionResult # types
-from emulation.msi_v2 import on_snoop_event # function
+from emulation.msi import MSIState, SnoopEvent, TransitionResult # types
+from emulation.msi import on_snoop_event # function
 
 sim = os.getenv("SIM", "icarus")
 pdk_root = Path("../gf180mcu")
@@ -36,7 +36,7 @@ async def test_snoop_against_golden(dut):
             # check output with golden
             golden: TransitionResult = on_snoop_event(state, event)
 
-            await Timer(1, unit="ns") # time to propagate outputs  
+            await Timer(1, unit="ns") # time to propagate outputs
 
             # check next state
             assert int(dut.next_state_o.value) == int(golden.next_state), \
@@ -61,7 +61,7 @@ def test_on_snoop_event_state_machine():
         pass
     if sim == "verilator":
         build_args = ["--timing", "--trace", "--trace-fst", "--trace-structs"]
-        
+
     runner = get_runner(sim)
     runner.build(
         sources=sources,

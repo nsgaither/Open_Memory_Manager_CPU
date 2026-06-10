@@ -9,7 +9,7 @@ from cocotb.triggers import Timer, Edge, RisingEdge, FallingEdge, ClockCycles
 from cocotb_tools.runner import get_runner
 
 # golden model
-from emulation.memory_v2 import MemoryController
+from emulation.memory import MemoryController
 
 sim = os.getenv("SIM", "icarus")
 pdk_root = Path(os.getenv("PDK_ROOT", "../gf180mcu"))
@@ -49,12 +49,12 @@ async def axi_write(dut, addr, data, wstrb):
     dut.mem_ready_i.value = 1
 
 
-    # Wait for dut to be ready 
+    # Wait for dut to be ready
     while True:
         await FallingEdge(dut.clk_i)
         if dut.mem_ready_o.value == 1:
             break
-    
+
     # tell data ready
     dut.mem_valid_i.value = 1
 
@@ -142,7 +142,7 @@ def mem_ctrl_runner():
     sources = [
         # SRAM macro
         Path(pdk_root) / pdk / "libs.ref/gf180mcu_fd_ip_sram/verilog/gf180mcu_fd_ip_sram__sram512x8m8wm1.v",
-        # SRAM bank 
+        # SRAM bank
         proj_path / "../src/mem_ctrl/mem128x32.sv",
     ]
 
@@ -151,7 +151,7 @@ def mem_ctrl_runner():
         pass
     if sim == "verilator":
         build_args = ["--timing", "--trace", "--trace-fst", "--trace-structs"]
-        
+
     runner = get_runner(sim)
     runner.build(
         sources=sources,

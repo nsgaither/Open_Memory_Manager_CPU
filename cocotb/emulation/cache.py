@@ -1,14 +1,14 @@
-# External 
+# External
 from dataclasses import dataclass
 
 # Data Types & Consts
 from typing import (Callable, Awaitable, Dict, List)
 from .axi_request_types import (axi_and_coherence_request, axi_request)
-from .msi_v2 import (MSIState, ProcessorEvent, SnoopEvent, CoherenceCmd, TransitionResult) 
+from .msi import (MSIState, ProcessorEvent, SnoopEvent, CoherenceCmd, TransitionResult)
 from .config import ( OFFSET_WIDTH, INDEX_WIDTH, TAG_WIDTH, NUM_CACHE_LINES)
 
 # Functions
-from .msi_v2 import (on_processor_event, on_snoop_event)
+from .msi import (on_processor_event, on_snoop_event)
 from .util import (apply_wstrb)
 
 
@@ -43,7 +43,7 @@ class CacheController:
     Handles processor requests and directory snoops.
     Fully associative for simulation simplicity.
     """
-        
+
     def __init__(self, core_id: int, directory_axi_handler: Callable[[axi_and_coherence_request], Awaitable[axi_request]]) -> None:
         """
         Create a cache controller for a single core.
@@ -54,7 +54,7 @@ class CacheController:
         """
 
         self.core_id: int = core_id
-        self.arbiter_port: Callable[[axi_and_coherence_request], Awaitable[axi_request]] = directory_axi_handler       
+        self.arbiter_port: Callable[[axi_and_coherence_request], Awaitable[axi_request]] = directory_axi_handler
         self.lines: List[CacheLine] = []
         for i in range(NUM_CACHE_LINES):
             tag = (i >> INDEX_WIDTH) & ((1 << TAG_WIDTH) - 1)
@@ -88,7 +88,7 @@ class CacheController:
 
         """
 
-        # build axi + conherence request        
+        # build axi + conherence request
         req: axi_and_coherence_request = axi_and_coherence_request(
             mem_valid = True,
             mem_ready = False,
@@ -103,12 +103,12 @@ class CacheController:
 
         # print(req)
         # Send request to directory and get response
-        
+
         # print("data sent to dir")
         # print(req)
         resp: axi_request = await self.arbiter_port(req)
 
-                
+
         # Return data from directory (relevant for BUS_RD, BUS_RDX)
         # print("yo is this hit")
         return resp
@@ -140,7 +140,7 @@ class CacheController:
         request_addr_tag: int = (request_addr) >> (OFFSET_WIDTH + INDEX_WIDTH) & bit_mask_to_isolate_tag
 
         # combine tag and index to make mem_addr
-        shifted_tag: int = (cache_line.tag << TAG_WIDTH) 
+        shifted_tag: int = (cache_line.tag << TAG_WIDTH)
         tag_addr: int = shifted_tag | cache_line.index
 
         if cache_line.tag != request_addr_tag:
@@ -149,16 +149,16 @@ class CacheController:
                 await self._send_dir_cmd(CoherenceCmd.EVICT_CLEAN, tag_addr, cache_line.data)
             elif cache_line.state == MSIState.MODIFIED:
                 await self._send_dir_cmd(CoherenceCmd.EVICT_DIRTY, tag_addr, cache_line.data)
-        
+
             cache_line.state = MSIState.INVALID
 
     async def _handle_cpu_read(self, request: axi_request) -> axi_request:
         """
-        Handles CPU read request, takes cachlines current state and figure out next one using state machine provisioned in on_processor event 
-        
+        Handles CPU read request, takes cachlines current state and figure out next one using state machine provisioned in on_processor event
+
         Args:
             request: axi_request to read
-        
+
         Returns:
             a axi_request repsone with handshake complete (connected to core.py)
         """
@@ -184,7 +184,7 @@ class CacheController:
             print("cache read miss")
             dir_resp: axi_request = await self._send_dir_cmd(tr.issue_cmd, request.mem_addr)
             if dir_resp.mem_ready:
-                line.state = tr.next_state        
+                line.state = tr.next_state
                 line.data = dir_resp.mem_rdata
 
         # we have data in cache so just pipe it straight through
@@ -193,10 +193,10 @@ class CacheController:
             request.mem_rdata = line.data
             request.mem_ready = True
             return request
-        
+
         # TODO: infinite loop when this commented
         # request.mem_ready = True
-            
+
         # Update cache line state based on state machine result
         # line.state = tr.next_state
         # Return data to CPU
@@ -206,14 +206,14 @@ class CacheController:
     async def _handle_cpu_write(self, request: axi_request) -> axi_request:
 
         """
-        Handles CPU write request, takes cachlines current state and figure out next one using state machine provisioned in on_processor event 
+        Handles CPU write request, takes cachlines current state and figure out next one using state machine provisioned in on_processor event
 
         Args:
             request: axi_request to write
-        
+
         Returns:
             a axi_and_coherence_request repsone with handshake complete
-            ie mem_ready and valid are both high         
+            ie mem_ready and valid are both high
 
         """
 
@@ -226,7 +226,7 @@ class CacheController:
 
         # check if tags match
         await self._handle_tag_mismatch(line, request.mem_addr)
-    
+
         # Ask state machine: what do we do for a write in current state?
         tr: TransitionResult = on_processor_event(line.state, ProcessorEvent.PR_WR)
 
@@ -241,7 +241,7 @@ class CacheController:
                 line.state = tr.next_state
                 # 1. Fill the line with data from memory
                 if dir_resp.mem_rdata is not None:
-                    line.data = dir_resp.mem_rdata        
+                    line.data = dir_resp.mem_rdata
                 # 2. Apply the CPU's specific byte updates
                 line.data = apply_wstrb(line.data, request.mem_wdata, request.mem_wstrb)
                 cache_rsp.mem_ready = dir_resp.mem_ready
@@ -255,23 +255,23 @@ class CacheController:
         # request.mem_ready = True
         return cache_rsp
 
-    
+
     def _handle_snoop(self, request: axi_and_coherence_request) -> axi_and_coherence_request:
 
         """
         Handle snoop message from directory.
-        
+
         Snoops occur when ANOTHER cache issues a coherence transaction that
         affects this cache's copy of the data. The directory sends snoop
         messages to coordinate between caches.
-        
+
         Args:
             (pass in a axi_and_cohrence_request from it the following are used)
                 addr: Memory address being snooped
                 packed_cmd: Packed coherence command from directory
-        
+
         Returns:
-            Flushed data (if MODIFIED and flush required), else 0        
+            Flushed data (if MODIFIED and flush required), else 0
 
         """
 
@@ -294,16 +294,16 @@ class CacheController:
 
         # Ask state machine: how do we respond to this snoop?
         tr: TransitionResult = on_snoop_event(line.state, event)
-        
+
         # If flush requested, provide our dirty data
         # Otherwise return 0 (no data needed)
         request.mem_wdata_or_msi_payload = line.data if tr.flush else 0
-        
+
         # Update state (may invalidate or downgrade to SHARED)
         # print(f" line state before snoop is {line.state}")
         line.state = tr.next_state
         # print(f" line state after snoop is {line.state}")
-        
+
         # Return flush data to directory
         request.mem_ready = True
         return request
@@ -353,27 +353,27 @@ class CacheController:
             raise TypeError(f"Unsupported request type: {type(request)}")
 
 
-    
+
     async def axi_handler_for_core(self, request: axi_request) -> axi_request:
 
         """
         Core's AXI request handler - routes requests to appropriate handlers.
         This is the primary entry point for all communication with the cache and core.
-        
+
         1. CPU Memory Traffic (axi_request):
            - Read: mem_wstrb == 0
            - Write: mem_wstrb != 0
            Routes to: _cpu_read() or _cpu_write()
-        
+
         Args:
             request:
             AXI request from CPU
-        
+
         Returns:
-            AXI response with mem_ready=True and appropriate data to the core        
+            AXI response with mem_ready=True and appropriate data to the core
 
         """
-        
+
         # print("=== core to cache ===")
         # print(request)
 
@@ -388,13 +388,13 @@ class CacheController:
 
         # print("=== cache to core ===")
         # print(request)
-        
+
         # Mark response as ready
         # request.mem_ready = True
         return request
 
 
-    
+
     async def axi_and_coherence_handler(self, request: axi_and_coherence_request ) -> axi_and_coherence_request:
 
         """
@@ -406,12 +406,12 @@ class CacheController:
             AXI + Cohrence Cmd from directory
 
         Returns:
-            AXI + Cohrence Cmd with mem_ready=True and appropriate data to the core        
+            AXI + Cohrence Cmd with mem_ready=True and appropriate data to the core
         """
 
         # Coherence traffic: snoop from directory
-        
-        # Error Handling 
+
+        # Error Handling
         if not request.mem_valid:
             request.mem_ready = False
             return request

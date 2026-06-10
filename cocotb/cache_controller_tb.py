@@ -16,9 +16,9 @@ sim = os.getenv("SIM", "icarus")
 log = logging.getLogger("cache_tb")
 logging.basicConfig(level=logging.INFO)
 
-from emulation.cache_v3 import CacheController
+from emulation.cache import CacheController
 from emulation.axi_request_types import axi_and_coherence_request, axi_request
-from emulation.msi_v2 import CoherenceCmd
+from emulation.msi import CoherenceCmd
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Constants
@@ -35,7 +35,7 @@ BUSUPGR_ACK = 0b100
 TIMEOUT_CYCLES = 1000
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Golden model and helpers 
+# Golden model and helpers
 # ─────────────────────────────────────────────────────────────────────────────
 
 captured_dir_requests: List = []
@@ -104,7 +104,7 @@ async def reset_dut(dut):
     dut.rst_ni.value = 1
 
     # its take very long to reset all the srams
-    cycles_to_reset: int = 2 * 512 
+    cycles_to_reset: int = 2 * 512
     for _ in range(cycles_to_reset):
         await RisingEdge(dut.clk_i)
 
@@ -132,13 +132,13 @@ async def one_read(dut, addr: int):
         raise Exception("addr out of range")
 
     # ── CPU request ─────────────────────────────────────────────
-    await FallingEdge(dut.clk_i) 
+    await FallingEdge(dut.clk_i)
     dut.mem_valid_i.value = 1
     dut.mem_instr_i.value = 0
     dut.mem_addr_i.value = addr
     dut.mem_wdata_i.value = 0
     dut.mem_wstrb_i.value = 0
-    dut.cache_ready_i.value = 1  
+    dut.cache_ready_i.value = 1
 
     # golden model
     golden_resp = await cache.axi_handler_for_core(
@@ -158,12 +158,12 @@ async def one_read(dut, addr: int):
     # if need a response give it a respone
     assert captured_dir_requests, "No directory request captured"
     dir_req: axi_and_coherence_request = captured_dir_requests[0]
-     
+
 
     if dir_req.coherence_cmd == CoherenceCmd.BUS_RD or dir_req.coherence_cmd == CoherenceCmd.BUS_RDX or dir_req.coherence_cmd == CoherenceCmd.BUS_UPGR:
 
         await wait_for_signal(dut, dut.cache_valid_o)
-        dut.cache_ready_i.value = 0  
+        dut.cache_ready_i.value = 0
         dut_cmd = int(dut.cache_cmd_o.value)
 
         assert int(dir_req.coherence_cmd) == dut_cmd, (
@@ -184,7 +184,7 @@ async def one_read(dut, addr: int):
 
         # Let the evict go through
         await wait_for_signal(dut, dut.cache_valid_o)
-        dut.cache_ready_i.value = 0  
+        dut.cache_ready_i.value = 0
         dut_cmd = int(dut.cache_cmd_o.value)
         assert int(dir_req.coherence_cmd) == dut_cmd, (
             f"Expected {dir_req.coherence_cmd}, got {dut_cmd} at addr {addr}"
@@ -192,11 +192,11 @@ async def one_read(dut, addr: int):
 
 
         # Run the bus cmd
-        await FallingEdge(dut.clk_i) 
-        await FallingEdge(dut.clk_i) 
-        dut.cache_ready_i.value = 1  
+        await FallingEdge(dut.clk_i)
+        await FallingEdge(dut.clk_i)
+        dut.cache_ready_i.value = 1
         await wait_for_signal(dut, dut.cache_valid_o)
-        dut.cache_ready_i.value = 1  
+        dut.cache_ready_i.value = 1
 
         dir_req: axi_and_coherence_request = captured_dir_requests[1]
         dut_cmd = int(dut.cache_cmd_o.value)
@@ -216,7 +216,7 @@ async def one_read(dut, addr: int):
 
     if dir_req.coherence_cmd == CoherenceCmd.NULL:
         pass
-        
+
     # ── Wait for completion ─────────────────────────────────────
     await wait_for_signal(dut, dut.mem_ready_o)
     assert int(dut.mem_rdata_o.value) == golden_resp.mem_rdata
