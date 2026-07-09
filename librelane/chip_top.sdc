@@ -19,11 +19,8 @@ if { [info exists ::env(CLOCK_PORT)] } {
 if { $::env(CLOCK_PORT) == $::env(CLOCK_NET) } {
     set port_args [get_ports $clock_port]
 } else {
-    set clock_selector [lindex $::env(CLOCK_NET) 0]
-    set port_args [get_pins -quiet $clock_selector]
-    if { [llength $port_args] == 0 } {
-        set port_args [get_nets -quiet $clock_selector]
-    }
+    # This should actually use CLOCK_PIN?
+    set port_args [get_pins [lindex $::env(CLOCK_NET) 0]]
 }
 
 puts "\[INFO] Using clock $clock_port…"
@@ -56,7 +53,6 @@ set_output_delay $output_delay_value -clock $clocks $clk_core_inout_ports
 # Input-only pads
 set clk_core_input_ports [get_ports { 
     rst_n_PAD
-    input_PAD[*]
 }] 
 
 set_input_delay -min 0 -clock $clocks $clk_core_input_ports
