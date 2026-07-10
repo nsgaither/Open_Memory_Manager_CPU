@@ -95,8 +95,8 @@ MACROS:
     instances:
       # Make sure to specify the SRAMs in pdn_cfg.tcl
       i_chip_core.u_cache_controller.cache_mem.u_cache_mem.data.sram0:
-        location: [500, 500]
-        orientation: N
+        location: [600, 600]
+        orientation: S
 
   gf180mcu_fd_ip_sram__sram64x8m8wm1:
     gds:
@@ -115,7 +115,7 @@ MACROS:
     instances:
       # Make sure to specify the SRAMs in pdn_cfg.tcl
       i_chip_core.u_cache_controller.cache_mem.u_cache_mem.tag.sram0:
-        location: [1100, 500]
+        location: [1150, 1400]
         orientation: E
 
 # This is an alternative method compared to
