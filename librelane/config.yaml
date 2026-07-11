@@ -38,7 +38,7 @@ VERILOG_FILES:
 - dir::../src/mem_ctrl/mem128x32.sv
 - dir::../src/mem_ctrl/mem128x4.sv
 - dir::../src/cache_controller/cache_controller.sv
-- dir::../src/cache_controller/outbound_arb .sv
+- dir::../src/cache_controller/outbound_arbiter.sv
 - dir::../src/cache_controller/on_snoop_event_state_machine.sv
 - dir::../src/cache_controller/on_processor_event_state_machine.sv
 - dir::../src/cache_controller/apply_wstrb.sv
