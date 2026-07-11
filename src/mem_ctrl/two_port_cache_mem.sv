@@ -8,6 +8,11 @@ module two_port_cache_mem #(
   input  logic clk_i,
   input  logic rst_ni,
 
+  // DFT scan interface. debug_mode_i is the scan/functional mux select.
+  input  logic debug_mode_i,
+  input  logic scan_in_i,
+  output logic scan_out_o,
+
   // =========================
   // PORT 0
   // =========================
@@ -73,6 +78,9 @@ module two_port_cache_mem #(
   logic busy;
   logic active_port;   // 0 = p0, 1 = p1
   logic last_grant;
+  wire scan_after_arb_regs;
+
+  assign scan_after_arb_regs = last_grant;
 
   logic grant_p0, grant_p1;
 
@@ -108,6 +116,10 @@ module two_port_cache_mem #(
       busy        <= 0;
       active_port <= 0;
       last_grant  <= 0;
+    end else if (debug_mode_i) begin
+      busy        <= scan_in_i;
+      active_port <= busy;
+      last_grant  <= active_port;
     end else begin
 
       // start transaction
@@ -214,6 +226,9 @@ module two_port_cache_mem #(
   cache_mem u_cache_mem (
     .clk_i    (clk_i),
     .rst_ni   (rst_ni),
+    .debug_mode_i (debug_mode_i),
+    .scan_in_i     (scan_after_arb_regs),
+    .scan_out_o    (scan_out_o),
 
     .valid_i  (cm_valid_i),
     .ready_o  (cm_ready_o),

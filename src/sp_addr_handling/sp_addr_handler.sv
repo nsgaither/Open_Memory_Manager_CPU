@@ -4,6 +4,11 @@ module sp_addr_handler (
     input         clk_i,
     input         rst_ni,
 
+    // DFT scan interface. debug_mode_i is the scan/functional mux select.
+    input         debug_mode_i,
+    input         scan_in_i,
+    output        scan_out_o,
+
     //interface from cpu (native picorv32)
     input         mem_valid,
     output        mem_ready,
@@ -68,9 +73,24 @@ module sp_addr_handler (
     logic mmio_wr_en;
     assign mmio_wr_en = |mem_wstrb & is_mmio & mem_valid;
 
+    // flush logic
+    logic [31:0] flush_addr_r;
+    logic        flush_valid_r;
+
+    logic [32:0] scan_state;
+    wire scan_after_handler_regs;
+    wire scan_after_mmio;
+
+    assign scan_state = {flush_addr_r, flush_valid_r};
+    assign scan_after_handler_regs = scan_state[32];
+    assign scan_out_o = scan_after_mmio;
+
     mmio mmio_inst (
         .clk_i(clk_i),
         .rst_ni(rst_ni),
+        .debug_mode_i(debug_mode_i),
+        .scan_in_i(scan_after_handler_regs),
+        .scan_out_o(scan_after_mmio),
         .addr_i(mem_addr),
         .wr_data_i(mem_wdata),
         .wr_en_i(mmio_wr_en), //only write if its a special addr
@@ -80,13 +100,12 @@ module sp_addr_handler (
         .gpio_dir_o(gpio_dir_o)
     );
 
-    // flush logic
-    logic [31:0] flush_addr_r;
-    logic        flush_valid_r;
     always_ff @( posedge clk_i ) begin : flush_reg
         if (!rst_ni) begin
             flush_addr_r <= '0;
             flush_valid_r <= '0;
+        end else if (debug_mode_i) begin
+            {flush_addr_r, flush_valid_r} <= {scan_state[31:0], scan_in_i};
         end else if (is_flush & mem_valid) begin
             flush_addr_r <= mem_addr;
             flush_valid_r <= '1;

@@ -11,6 +11,11 @@ module cache_mem
   input  wire        clk_i,
   input  wire        rst_ni,
 
+  // DFT scan interface passed through both memory-controller wrappers.
+  input  wire        debug_mode_i,
+  input  wire        scan_in_i,
+  output wire        scan_out_o,
+
   // input interface
   input  wire         valid_i,
   output wire         ready_o,
@@ -45,6 +50,7 @@ module cache_mem
   // combine ready_o and valid_o of both modules
   logic tag_mem_ready, data_mem_ready;
   logic tag_mem_valid, data_mem_valid;
+  wire scan_after_tag_mem;
   assign ready_o = (tag_mem_ready & data_mem_ready);
   assign valid_o = (tag_mem_valid & data_mem_valid);
 
@@ -53,6 +59,9 @@ module cache_mem
   (
     .clk_i(clk_i),
     .rst_ni(rst_ni),
+    .debug_mode_i(debug_mode_i),
+    .scan_in_i(scan_in_i),
+    .scan_out_o(scan_after_tag_mem),
     .mem_valid_i(valid_i),
     .mem_ready_o(tag_mem_ready),
     .mem_addr_i(addr_i),
@@ -71,6 +80,9 @@ module cache_mem
   (
     .clk_i(clk_i),
     .rst_ni(rst_ni),
+    .debug_mode_i(debug_mode_i),
+    .scan_in_i(scan_after_tag_mem),
+    .scan_out_o(scan_out_o),
     .mem_valid_i(valid_i),
     .mem_ready_o(data_mem_ready),
     .mem_addr_i(addr_i),

@@ -35,7 +35,9 @@ module chip_core #(
     localparam SERIAL_I_START_ID = 2;   // bidir[2]  through bidir[10]
     localparam SERIAL_O_START_ID = 12;  // bidir[12] through bidir[20]
     localparam GPIO_START_ID     = 23;  // bidir[23] through bidir[30]
-    localparam DEBUG_START_ID    = 23;  // muxed with GPIO  
+    localparam DEBUG_START_ID    = 23;  // DFT pins muxed with GPIO[7:0]
+    localparam DFT_PINS          = 8;
+    localparam DFT_CHAINS        = DFT_PINS / 2;
  
     wire clk_i;
     assign clk_i = clk;
@@ -51,15 +53,34 @@ module chip_core #(
     wire cores_en;
     wire boot_done;
     wire debug_en;
+    wire [DFT_CHAINS-1:0] dft_scan_in;
+    wire [DFT_CHAINS-1:0] dft_scan_out;
+    wire scan_after_mem_init;
+    wire scan_after_sp_handler;
+    wire [1:0] cache_scan_out;
+    wire [1:0] interface_scan_out;
 
     assign memory_ready = (mem_init_count == MEM_INIT_COUNT_MAX);
     assign cores_en = memory_ready && boot_done;
     assign boot_done = bidir_in[BOOT_DONE_ID];
     assign debug_en = bidir_in[DEBUG_ID];
+    assign dft_scan_in = bidir_in[DEBUG_START_ID +: DFT_CHAINS];
+    assign scan_after_mem_init = mem_init_count[MEM_INIT_COUNTER_WIDTH-1];
+
+    // Four independent chains use the lower half of the shared GPIO/DFT pad
+    // range as serial inputs and the upper half as serial outputs.
+    assign dft_scan_out[0] = interface_scan_out[0];
+    assign dft_scan_out[1] = cache_scan_out[0];
+    assign dft_scan_out[2] = cache_scan_out[1];
+    assign dft_scan_out[3] = interface_scan_out[1];
 
     always_ff @(posedge clk_i) begin
         if (!rst_n) begin
             mem_init_count <= '0;
+        end else if (debug_en) begin
+            mem_init_count <= {
+                mem_init_count[MEM_INIT_COUNTER_WIDTH-2:0], dft_scan_in[0]
+            };
         end else if (!memory_ready) begin
             mem_init_count <= mem_init_count + 1'b1;
         end
@@ -197,6 +218,9 @@ module chip_core #(
     sp_addr_handler u_sp_addr_handler (
         .clk_i           (clk_i),
         .rst_ni          (rst_n),
+        .debug_mode_i    (debug_en),
+        .scan_in_i       (scan_after_mem_init),
+        .scan_out_o      (scan_after_sp_handler),
 
         // Interface from CPU (native picorv32)
         .mem_valid       (mem_valid),
@@ -252,6 +276,9 @@ module chip_core #(
     cache_controller u_cache_controller (
         .clk_i                 (clk_i),
         .rst_ni                (rst_n),
+        .debug_mode_i          (debug_en),
+        .scan_in_i             ({dft_scan_in[2], dft_scan_in[1]}),
+        .scan_out_o            (cache_scan_out),
 
         .mem_valid_i           (pass_mem_valid),
         .mem_instr_i           (mem_instr),
@@ -300,6 +327,9 @@ module chip_core #(
     ) u_cache_interface (
         .clk_i          (clk_i),
         .rst_ni         (rst_n),
+        .debug_mode_i   (debug_en),
+        .scan_in_i      ({dft_scan_in[3], scan_after_sp_handler}),
+        .scan_out_o     (interface_scan_out),
 
         // UPSTREAM --------------------------------------
         
@@ -347,16 +377,18 @@ module chip_core #(
         bidir_pd = '0;
 
         // IO control
-        bidir_oe[GPIO_START_ID +: 8] = gpio_dir;
+        if (debug_en) begin
+            bidir_oe[DEBUG_START_ID +: DFT_CHAINS] = '0;
+            bidir_oe[DEBUG_START_ID + DFT_CHAINS +: DFT_CHAINS] = '1;
+        end else begin
+            bidir_oe[GPIO_START_ID +: 8] = gpio_dir;
+        end
         bidir_oe[DEBUG_ID] = 1'b0;                     // debug pin is input only
         bidir_oe[TRAP_ID] = 1'b1;                      // trap pin is output only
         bidir_oe[REQ_I_ID] = 1'b0;                     // req_i is input only
         bidir_oe[REQ_O_ID] = 1'b1;                     // req_o is output only
         bidir_oe[SERIAL_I_START_ID +: NUM_RPINS] = '0; // serial_i is input only
         bidir_oe[SERIAL_O_START_ID +: NUM_TPINS] = '1; // serial_o is output only
-        bidir_pd[SCAN_MODE_ID] = 1'b1;                  // default to functional mode if undriven
-        bidir_pd[SCAN_ENABLE_ID] = 1'b1;
-        bidir_pd[SCAN_IN_ID] = 1'b1;
         bidir_ie = ~bidir_oe;
     end
 
@@ -379,6 +411,12 @@ module chip_core #(
         // GPIO
         bidir_out[GPIO_START_ID +: 8] = gpio_pins_o;
         gpio_pins_i = bidir_data_i[GPIO_START_ID +: 8];
+
+        // In debug mode, GPIO[3:0] are scan inputs and GPIO[7:4] are the
+        // corresponding scan outputs.
+        if (debug_en) begin
+            bidir_out[DEBUG_START_ID + DFT_CHAINS +: DFT_CHAINS] = dft_scan_out;
+        end
     end
 
 endmodule

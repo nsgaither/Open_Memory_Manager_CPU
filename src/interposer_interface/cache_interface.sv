@@ -7,6 +7,12 @@ module cache_interface #(
 (
     input  logic                clk_i,
     input  logic                rst_ni,
+
+    // Two DFT lanes: lane 0 covers receive pipes/CPU ID and lane 1 covers
+    // the transmit/receive serializers.
+    input  logic                debug_mode_i,
+    input  logic [1:0]          scan_in_i,
+    output logic [1:0]          scan_out_o,
     // UPSTREAM --------------------------------------
     // Cache Send Ports
     input  logic                cache_valid_i,
@@ -98,6 +104,10 @@ module cache_interface #(
 
     // TRANSMISSION
     logic [69:0] t_packet;
+    wire scan_after_tserializer;
+    wire scan_after_rserializer;
+    wire scan_after_bus_pipe;
+    wire scan_after_snoop_pipe;
     always_comb begin : build_packet
         case (cache_cmd_i)
             BusRD_1h            : t_packet = {MEDIUM,  32'b0,        cache_addr_i, BusRD};
@@ -123,6 +133,9 @@ module cache_interface #(
     ) u_tserializer (
         .clk_i    (clk_i),
         .rst_ni   (rst_ni),
+        .debug_mode_i (debug_mode_i),
+        .scan_in_i     (scan_in_i[1]),
+        .scan_out_o    (scan_after_tserializer),
 
         .req_o    (req_o),
         .serial_o (serial_o),
@@ -143,6 +156,9 @@ module cache_interface #(
     ) u_rserializer (
         .clk_i    (clk_i),
         .rst_ni   (rst_ni),
+        .debug_mode_i (debug_mode_i),
+        .scan_in_i     (scan_after_tserializer),
+        .scan_out_o    (scan_after_rserializer),
         
         .serial_i (serial_i),
         .req_i    (req_i),
@@ -205,6 +221,9 @@ module cache_interface #(
     ) bus_ack_pipe (
         .clk_i   (clk_i),
         .rst_ni  (rst_ni),
+        .debug_mode_i (debug_mode_i),
+        .scan_in_i     (scan_in_i[0]),
+        .scan_out_o    (scan_after_bus_pipe),
 
         // Upstream Interface
         .valid_i (bus_valid_d),
@@ -224,6 +243,9 @@ module cache_interface #(
     ) snoop_pipe (
         .clk_i   (clk_i),
         .rst_ni  (rst_ni),
+        .debug_mode_i (debug_mode_i),
+        .scan_in_i     (scan_after_bus_pipe),
+        .scan_out_o    (scan_after_snoop_pipe),
 
         // Upstream Interface
         .valid_i (snoop_valid_d),
@@ -239,10 +261,14 @@ module cache_interface #(
     // hold cpu_id
     logic [7:0] cpu_id_r;
     assign cpu_id_o = cpu_id_r;
+    assign scan_out_o[0] = cpu_id_r[7];
+    assign scan_out_o[1] = scan_after_rserializer;
 
     always_ff @( posedge clk_i ) begin : cpuid_reg
         if (!rst_ni) begin
             cpu_id_r <= '0;
+        end else if (debug_mode_i) begin
+            cpu_id_r <= {cpu_id_r[6:0], scan_after_snoop_pipe};
         end else if ((rmetadata == WhoAmI) & (rvalid_o == 1)) begin
             cpu_id_r <= rpacket_full[11:4];
         end

@@ -25,17 +25,21 @@ hdl_toplevel = "chip_top"
 
 # Pad indexes from chip_core.sv.
 DEBUG_PAD = 0
+BOOT_DONE_PAD = 1
 SERIAL_I_START_PAD = 2
 REQ_I_PAD = 11
 SERIAL_O_START_PAD = 12
 REQ_O_PAD = 21
 TRAP_PAD = 22
-SCAN_MODE_PAD = 31
-SCAN_ENABLE_PAD = 32
-SCAN_IN_PAD = 33
-SCAN_OUT_PAD = 34
+DEBUG_START_PAD = 23
+DFT_PINS = 8
+DFT_CHAINS = DFT_PINS // 2
+SCAN_IN_PADS = tuple(range(DEBUG_START_PAD, DEBUG_START_PAD + DFT_CHAINS))
+SCAN_OUT_PADS = tuple(
+    range(DEBUG_START_PAD + DFT_CHAINS, DEBUG_START_PAD + DFT_PINS)
+)
 NUM_SERIAL_PADS = 9
-SCAN_CHAIN_WIDTH = 128
+SCAN_CHAIN_LENGTHS = (139, 198, 214, 119)
 
 
 def _pad_drive(width, driven_bits=None):
@@ -43,6 +47,14 @@ def _pad_drive(width, driven_bits=None):
     for index, value in (driven_bits or {}).items():
         bits[width - 1 - index] = str(value)
     return "".join(bits)
+
+
+def _scan_pad_drive(width, scan_inputs):
+    driven_bits = {DEBUG_PAD: 1}
+    driven_bits.update(
+        {SCAN_IN_PADS[lane]: (scan_inputs >> lane) & 1 for lane in range(DFT_CHAINS)}
+    )
+    return _pad_drive(width, driven_bits)
 
 
 async def reset_chip(dut):
@@ -216,7 +228,7 @@ async def test_serial_input_pad_path(dut):
 
 @cocotb.test()
 async def test_scan_chain_shift_path(dut):
-    """Shift a known pattern through the DFT scan chain."""
+    """Check all four GPIO-muxed scan paths and their documented lengths."""
 
     if gl:
         return
@@ -225,56 +237,46 @@ async def test_scan_chain_shift_path(dut):
     core = dut.i_chip_core
 
     dut.bidir_PAD.value = _pad_drive(
-        num_bidir_pads,
-        {
-            SCAN_MODE_PAD: 1,
-            SCAN_ENABLE_PAD: 1,
-            SCAN_IN_PAD: 0,
-        },
+        num_bidir_pads, {DEBUG_PAD: 1, **{pad: 0 for pad in SCAN_IN_PADS}}
     )
     await Timer(2, unit="ns")
 
-    assert_vector_bit(core.bidir_oe, SCAN_MODE_PAD, 0, "scan_mode OE")
-    assert_vector_bit(core.bidir_oe, SCAN_ENABLE_PAD, 0, "scan_enable OE")
-    assert_vector_bit(core.bidir_oe, SCAN_IN_PAD, 0, "scan_in OE")
-    assert_vector_bit(core.bidir_oe, SCAN_OUT_PAD, 1, "scan_out OE")
+    for lane, pad in enumerate(SCAN_IN_PADS):
+        assert_vector_bit(core.bidir_oe, pad, 0, f"scan input {lane} OE")
+        assert_vector_bit(core.bidir_ie, pad, 1, f"scan input {lane} IE")
+    for lane, pad in enumerate(SCAN_OUT_PADS):
+        assert_vector_bit(core.bidir_oe, pad, 1, f"scan output {lane} OE")
+        assert_vector_bit(core.bidir_ie, pad, 0, f"scan output {lane} IE")
 
-    bits_in = [((index * 5 + 1) >> 1) & 1 for index in range(SCAN_CHAIN_WIDTH + 8)]
-    bits_out = []
+    # Flush every chain to zero, inject one pulse into all four inputs, and
+    # check that it emerges after the documented number of registers.
+    for _ in range(max(SCAN_CHAIN_LENGTHS)):
+        dut.bidir_PAD.value = _scan_pad_drive(num_bidir_pads, 0)
+        await ClockCycles(dut.clk_PAD, 1)
+        # The foundry input pad delays the core clock by 1 ns.
+        await Timer(2, unit="ns")
 
-    for bit in bits_in:
-        dut.bidir_PAD.value = _pad_drive(
-            num_bidir_pads,
-            {
-                SCAN_MODE_PAD: 1,
-                SCAN_ENABLE_PAD: 1,
-                SCAN_IN_PAD: bit,
-            },
+    for step in range(1, max(SCAN_CHAIN_LENGTHS) + 2):
+        dut.bidir_PAD.value = _scan_pad_drive(
+            num_bidir_pads, (1 << DFT_CHAINS) - 1 if step == 1 else 0
         )
         await ClockCycles(dut.clk_PAD, 1)
-        await Timer(1, unit="ps")
-        bits_out.append(int(core.scan_out.value))
+        await Timer(2, unit="ns")
 
-    expected = [
-        0 if index < SCAN_CHAIN_WIDTH else bits_in[index - SCAN_CHAIN_WIDTH]
-        for index in range(len(bits_in))
-    ]
-
-    if bits_out != expected:
-        first_mismatch = next(
-            index for index, (actual, wanted) in enumerate(zip(bits_out, expected))
-            if actual != wanted
+        actual = int(core.dft_scan_out.value)
+        expected = sum(
+            (1 << lane) if step == length else 0
+            for lane, length in enumerate(SCAN_CHAIN_LENGTHS)
         )
-        raise AssertionError(
-            "scan_out did not match expected shifted pattern: "
-            f"first mismatch at bit {first_mismatch}, "
-            f"got {bits_out[first_mismatch]}, expected {expected[first_mismatch]}"
+        assert actual == expected, (
+            f"scan outputs at shift {step}: expected 0b{expected:04b}, "
+            f"got 0b{actual:04b}"
         )
 
 
 @cocotb.test()
-async def test_scan_chain_capture_path(dut):
-    """Capture selected internal status bits into the DFT scan chain."""
+async def test_scan_chain_insertion_path(dut):
+    """Insert scan data into the first real register on every chain."""
 
     if gl:
         return
@@ -282,21 +284,34 @@ async def test_scan_chain_capture_path(dut):
     num_bidir_pads = await start_and_reset(dut)
     core = dut.i_chip_core
 
-    dut.bidir_PAD.value = _pad_drive(
-        num_bidir_pads,
-        {
-            REQ_I_PAD: 1,
-            SCAN_MODE_PAD: 1,
-            SCAN_ENABLE_PAD: 0,
-            SCAN_IN_PAD: 0,
-        },
-    )
+    dut.bidir_PAD.value = _scan_pad_drive(num_bidir_pads, 0b1111)
     await Timer(2, unit="ns")
-    await ClockCycles(dut.clk_PAD, 3)
-    await Timer(1, unit="ns")
+    assert int(core.dft_scan_in.value) == 0b1111
+    await ClockCycles(dut.clk_PAD, 1)
+    await Timer(2, unit="ns")
 
-    assert_vector_bit(core.scan_data, 91, 1, "captured req_i")
-    assert_vector_bit(core.scan_data, 127, 1, "captured scan_mode")
+    assert_vector_bit(core.mem_init_count, 0, 1, "chain 0 startup insertion")
+    assert_vector_bit(
+        core.u_cache_controller.cpu_state_q, 0, 1, "chain 1 controller insertion"
+    )
+    assert_scalar(
+        core.u_cache_controller.cache_mem.busy, 1, "chain 2 memory insertion"
+    )
+    assert_scalar(
+        core.u_cache_interface.u_tserializer.current_state,
+        1,
+        "chain 3 serializer insertion",
+    )
+
+    # Dropping debug mode restores the original GPIO mux immediately, without
+    # requiring another clock edge.
+    dut.bidir_PAD.value = _pad_drive(num_bidir_pads, {DEBUG_PAD: 0})
+    await Timer(2, unit="ns")
+    dft_mask = (1 << DFT_PINS) - 1
+    gpio_oe = (int(core.bidir_oe.value) >> DEBUG_START_PAD) & dft_mask
+    gpio_out = (int(core.bidir_out.value) >> DEBUG_START_PAD) & dft_mask
+    assert gpio_oe == int(core.gpio_dir.value)
+    assert gpio_out == int(core.gpio_pins_o.value)
 
 
 @cocotb.test()
@@ -306,8 +321,13 @@ async def test_cpu_reset_held_until_memory_ready(dut):
     if gl:
         return
 
-    await start_and_reset(dut)
+    num_bidir_pads = await start_and_reset(dut)
     core = dut.i_chip_core
+
+    dut.bidir_PAD.value = _pad_drive(
+        num_bidir_pads, {DEBUG_PAD: 0, BOOT_DONE_PAD: 1}
+    )
+    await Timer(2, unit="ns")
 
     assert_scalar(core.memory_ready, 0, "memory_ready immediately after reset")
     assert_scalar(core.cpu_resetn, 0, "cpu_resetn immediately after reset")
@@ -357,7 +377,6 @@ def chip_top_runner():
         sources += [
             proj_path / "../src/chip_top.sv",
             proj_path / "../src/chip_core.sv",
-            proj_path / "../src/dft/scan_chain.sv",
             proj_path / "../ip/picorv32/picorv32.v",
             proj_path / "../src/sp_addr_handling/sp_addr_handler.sv",
             proj_path / "../src/sp_addr_handling/mmio.sv",
@@ -378,8 +397,11 @@ def chip_top_runner():
 
     sources += [
         pdk_root / pdk / "libs.ref/gf180mcu_fd_io/verilog/gf180mcu_fd_io.v",
-        pdk_root / pdk / "libs.ref/gf180mcu_fd_io/verilog/gf180mcu_ws_io.v",
         proj_path / "../ip/gf180mcu_ws_ip__id/vh/gf180mcu_ws_ip__id.v",
+        proj_path / "../ip/gf180mcu_ws_ip__qrcode_id/vh/gf180mcu_ws_ip__qrcode_id.v",
+        proj_path / "../ip/gf180mcu_ws_ip__shuttle_id/vh/gf180mcu_ws_ip__shuttle_id.v",
+        proj_path / "../ip/gf180mcu_ws_ip__project_id/vh/gf180mcu_ws_ip__project_id.v",
+        proj_path / "../ip/gf180mcu_ws_ip__marker/vh/gf180mcu_ws_ip__marker.v",
         proj_path / "../ip/gf180mcu_ws_ip__logo/vh/gf180mcu_ws_ip__logo.v",
     ]
 

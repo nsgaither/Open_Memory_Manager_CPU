@@ -32,7 +32,6 @@ DESIGN_NAME: chip_top
 VERILOG_FILES:
 - dir::../src/chip_top.sv
 - dir::../src/chip_core.sv
-- dir::../src/dft/scan_chain.sv
 - dir::../ip/picorv32/picorv32.v
 - dir::../src/mem_ctrl/cache_mem.sv
 - dir::../src/mem_ctrl/mem128x32.sv

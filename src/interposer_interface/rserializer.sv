@@ -8,6 +8,11 @@ module rserializer #(
     input  logic                  clk_i,
     input  logic                  rst_ni,
 
+    // DFT scan interface. debug_mode_i is the scan/functional mux select.
+    input  logic                  debug_mode_i,
+    input  logic                  scan_in_i,
+    output logic                  scan_out_o,
+
     input  logic [NUM_PINS-1 : 0] serial_i,
     input  logic                  req_i,
 
@@ -26,10 +31,21 @@ module rserializer #(
     } state;
 
     state current_state, next_state;
+    logic [shift_depth-1:0][shift_width-1:0] shift_arr;
+    logic [shift_depth*shift_width-1:0] scan_shift_state;
+    wire scan_after_state;
+    wire scan_after_shift;
+
+    assign scan_after_state = current_state;
+    assign scan_shift_state = shift_arr;
+    assign scan_after_shift = shift_arr[shift_depth-1][shift_width-1];
+    assign scan_out_o = valid_o;
 
     always_ff @( posedge clk_i ) begin : state_reg
         if (!rst_ni)
             current_state <= IDLE;
+        else if (debug_mode_i)
+            current_state <= state'(scan_in_i);
         else
             current_state <= next_state;
     end
@@ -44,12 +60,15 @@ module rserializer #(
     end
 
     // shift arr
-    logic [shift_depth-1:0][shift_width-1:0] shift_arr;
     always_ff @( posedge clk_i ) begin : shifter
         if (!rst_ni) begin
             for (int i = 0; i < shift_depth; i++) begin : rst_shift
                 shift_arr[i] <= '0;
             end
+        end else if (debug_mode_i) begin
+            shift_arr <= {
+                scan_shift_state[shift_depth*shift_width-2:0], scan_after_state
+            };
         end else if (req_i) begin
             shift_arr[0] <= serial_i;
             for (int i = 1; i < shift_depth; i++) begin : shift
@@ -64,6 +83,8 @@ module rserializer #(
     always_ff @( posedge clk_i ) begin : valid_reg
         if (!rst_ni) begin
             valid_o <= '0;
+        end else if (debug_mode_i) begin
+            valid_o <= scan_after_shift;
         end else if ((current_state == RECEIVE) & (next_state == IDLE)) begin
             valid_o <= '1;
         end else if ((current_state == IDLE) & (next_state == RECEIVE)) begin

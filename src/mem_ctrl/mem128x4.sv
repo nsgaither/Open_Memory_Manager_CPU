@@ -5,6 +5,11 @@ module mem128x4
   input  logic        clk_i,
   input  logic        rst_ni,
 
+  // DFT scan interface. debug_mode_i is the scan/functional mux select.
+  input  logic        debug_mode_i,
+  input  logic        scan_in_i,
+  output logic        scan_out_o,
+
   input  logic        mem_valid_i,
   output logic        mem_ready_o,
   input  logic [31:0] mem_addr_i, /* verilator lint_off UNUSEDSIGNAL */
@@ -39,6 +44,13 @@ module mem128x4
   logic [7:0] data_to_write_q, data_to_write_d;
   logic [7:0] data_to_write;
 
+  logic [35:0] scan_state;
+  assign scan_state = {
+    data_to_write_q, data_read_q, wdata_q, nibble_sel_q,
+    addr_q, reset_addr_q, state_q
+  };
+  assign scan_out_o = scan_state[35];
+
   logic       sram_enable_n;
   logic [5:0] sram_addr;
   logic [7:0] data_read_from_sram;
@@ -54,6 +66,11 @@ module mem128x4
       wdata_q         <= '0;
       data_read_q     <= '0;
       data_to_write_q <= '0;
+    end else if (debug_mode_i) begin
+      {
+        data_to_write_q, data_read_q, wdata_q, nibble_sel_q,
+        addr_q, reset_addr_q, state_q
+      } <= {scan_state[34:0], scan_in_i};
     end else begin
       state_q         <= state_d;
       reset_addr_q    <= reset_addr_d;
@@ -137,6 +154,14 @@ module mem128x4
       default: state_d = IDLE;
 
     endcase
+
+    // Scan-shifted controller states must not accidentally write the SRAM
+    // macro. The inserted state takes effect after debug mode is released.
+    if (debug_mode_i) begin
+      sram_enable_n = 1'b1;
+      sram_gwen     = 1'b1;
+      sram_bit_mask = 8'hFF;
+    end
   end
 
   assign mem_ready_o = (state_q == IDLE);

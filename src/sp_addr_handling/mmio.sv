@@ -4,6 +4,11 @@ module mmio (
     input logic clk_i,
     input logic rst_ni,
 
+    // DFT scan interface. debug_mode_i is the scan/functional mux select.
+    input  logic debug_mode_i,
+    input  logic scan_in_i,
+    output logic scan_out_o,
+
     // interface from the addr decoder
     input logic [31:0] addr_i,
     input logic [31:0] wr_data_i, /* verilator lint_off UNUSEDSIGNAL */
@@ -21,6 +26,10 @@ module mmio (
     logic [7:0] data_reg; // holds pin vals
     logic [7:0] csr_reg;  // holds direction (out/in)
 
+    logic [15:0] scan_state;
+    assign scan_state = {csr_reg, data_reg};
+    assign scan_out_o = scan_state[15];
+
     // addr constants
     //localparam ADDR_DATA = 32'h8000_0010;
     //localparam ADDR_CSR = 32'h8000_0018;
@@ -35,6 +44,8 @@ module mmio (
         if(!rst_ni) begin
             data_reg <= 8'h00;
             csr_reg <= 8'h00; // default all to inputs
+        end else if (debug_mode_i) begin
+            {csr_reg, data_reg} <= {scan_state[14:0], scan_in_i};
         end else if(wr_en_i) begin
             //case where we write to csr (all 8 bits at once)
             if(addr_i == 32'h8000_0018) begin

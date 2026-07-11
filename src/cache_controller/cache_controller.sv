@@ -7,6 +7,11 @@ module cache_controller
 (
   input  logic        clk_i,
   input  logic        rst_ni,
+  // Two DFT lanes: lane 0 covers controller state; lane 1 covers the cache
+  // memory wrappers and outbound arbiter.
+  input  logic        debug_mode_i,
+  input  logic [1:0]  scan_in_i,
+  output logic [1:0]  scan_out_o,
   // ── Processor → Cache ────────────────────────────────────────────
   input  logic        mem_valid_i,
   input  logic        mem_instr_i, /* verilator lint_off UNUSEDSIGNAL */
@@ -133,6 +138,18 @@ module cache_controller
   logic [31:0] snp_flush_data_q, snp_flush_data_d;
   logic [1:0]  snp_line_state_q, snp_line_state_d;   
 
+  logic [197:0] scan_state;
+  wire scan_after_cache_mem;
+
+  assign scan_state = {
+    snp_line_state_q, snp_flush_data_q, snp_flush_q, snp_tag_q,
+    snp_next_state_q, snp_dircmd_q, snp_addr_q, tag_match_cpu_q,
+    cpu_line_state_q, cpu_line_tag_q, cpu_line_data_q, cpu_cmd_valid_q,
+    cpu_issue_cmd_q, cpu_next_state_q, cpu_wstrb_q, cpu_wdata_q,
+    cpu_addr_q, snp_state_q, cpu_state_q
+  };
+  assign scan_out_o[0] = scan_state[197];
+
 
   // cache_mem wires
   // on_cpu_request port
@@ -167,6 +184,9 @@ module cache_controller
   (
     .clk_i(clk_i),
     .rst_ni(rst_ni),
+    .debug_mode_i(debug_mode_i),
+    .scan_in_i(scan_in_i[1]),
+    .scan_out_o(scan_after_cache_mem),
 
     // on processor event port
     .p0_valid_i(cm_cpu_valid_i),
@@ -219,6 +239,9 @@ module cache_controller
   outbound_arbiter outbound_ctrl (
     .clk_i(clk_i),
     .rst_ni(rst_ni),
+    .debug_mode_i(debug_mode_i),
+    .scan_in_i(scan_after_cache_mem),
+    .scan_out_o(scan_out_o[1]),
 
     .m0_valid_i(outbound_cpu_cache_valid_i),
     .m0_addr_i(outbound_cpu_cache_addr_i),
@@ -313,6 +336,14 @@ module cache_controller
       snp_flush_data_q <= 32'b0;
       snp_tag_q        <= 2'b0;
       snp_line_state_q <= S_INVALID;    // NEW
+    end else if (debug_mode_i) begin
+      {
+        snp_line_state_q, snp_flush_data_q, snp_flush_q, snp_tag_q,
+        snp_next_state_q, snp_dircmd_q, snp_addr_q, tag_match_cpu_q,
+        cpu_line_state_q, cpu_line_tag_q, cpu_line_data_q, cpu_cmd_valid_q,
+        cpu_issue_cmd_q, cpu_next_state_q, cpu_wstrb_q, cpu_wdata_q,
+        cpu_addr_q, snp_state_q, cpu_state_q
+      } <= {scan_state[196:0], scan_in_i[0]};
     end else begin
       cpu_state_q      <= cpu_state_d;
       snp_state_q      <= snp_state_d;
