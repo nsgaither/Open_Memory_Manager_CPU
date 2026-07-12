@@ -11,6 +11,10 @@ module chip_core #(
     
     input  wire 					  clk,        // clock
     input  wire 					  rst_n,      // reset (active low)
+
+    // Physically buffered scan/functional-mode controls. Separate branches
+    // prevent one pad-driven net from spanning every scan mux in the core.
+    input  wire  [3:0] debug_mode_i,
     
     input  wire  [NUM_BIDIR_PADS-1:0] bidir_in,   // Input value
     output logic [NUM_BIDIR_PADS-1:0] bidir_out,  // Output value
@@ -52,7 +56,6 @@ module chip_core #(
     wire memory_ready;
     wire cores_en;
     wire boot_done;
-    wire debug_en;
     wire [DFT_CHAINS-1:0] dft_scan_in;
     wire [DFT_CHAINS-1:0] dft_scan_out;
     wire scan_after_mem_init;
@@ -63,7 +66,6 @@ module chip_core #(
     assign memory_ready = (mem_init_count == MEM_INIT_COUNT_MAX);
     assign cores_en = memory_ready && boot_done;
     assign boot_done = bidir_in[BOOT_DONE_ID];
-    assign debug_en = bidir_in[DEBUG_ID];
     assign dft_scan_in = bidir_in[DEBUG_START_ID +: DFT_CHAINS];
     assign scan_after_mem_init = mem_init_count[MEM_INIT_COUNTER_WIDTH-1];
 
@@ -77,7 +79,7 @@ module chip_core #(
     always_ff @(posedge clk_i) begin
         if (!rst_n) begin
             mem_init_count <= '0;
-        end else if (debug_en) begin
+        end else if (debug_mode_i[0]) begin
             mem_init_count <= {
                 mem_init_count[MEM_INIT_COUNTER_WIDTH-2:0], dft_scan_in[0]
             };
@@ -218,7 +220,7 @@ module chip_core #(
     sp_addr_handler u_sp_addr_handler (
         .clk_i           (clk_i),
         .rst_ni          (rst_n),
-        .debug_mode_i    (debug_en),
+        .debug_mode_i    (debug_mode_i[1]),
         .scan_in_i       (scan_after_mem_init),
         .scan_out_o      (scan_after_sp_handler),
 
@@ -276,7 +278,7 @@ module chip_core #(
     cache_controller u_cache_controller (
         .clk_i                 (clk_i),
         .rst_ni                (rst_n),
-        .debug_mode_i          (debug_en),
+        .debug_mode_i          (debug_mode_i[2]),
         .scan_in_i             ({dft_scan_in[2], dft_scan_in[1]}),
         .scan_out_o            (cache_scan_out),
 
@@ -327,7 +329,7 @@ module chip_core #(
     ) u_cache_interface (
         .clk_i          (clk_i),
         .rst_ni         (rst_n),
-        .debug_mode_i   (debug_en),
+        .debug_mode_i   (debug_mode_i[3]),
         .scan_in_i      ({dft_scan_in[3], scan_after_sp_handler}),
         .scan_out_o     (interface_scan_out),
 
@@ -377,7 +379,7 @@ module chip_core #(
         bidir_pd = '0;
 
         // IO control
-        if (debug_en) begin
+        if (debug_mode_i[0]) begin
             bidir_oe[DEBUG_START_ID +: DFT_CHAINS] = '0;
             bidir_oe[DEBUG_START_ID + DFT_CHAINS +: DFT_CHAINS] = '1;
         end else begin
@@ -414,7 +416,7 @@ module chip_core #(
 
         // In debug mode, GPIO[3:0] are scan inputs and GPIO[7:4] are the
         // corresponding scan outputs.
-        if (debug_en) begin
+        if (debug_mode_i[0]) begin
             bidir_out[DEBUG_START_ID + DFT_CHAINS +: DFT_CHAINS] = dft_scan_out;
         end
     end

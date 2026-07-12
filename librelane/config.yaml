@@ -55,7 +55,10 @@ SLANG_ARGUMENTS: ['--keep-hierarchy']
 
 # Tuned design repair for slew/cap cleanup without exploding post-GPL buffering.
 SYNTH_STRATEGY: "DELAY 4"
-MAX_FANOUT_CONSTRAINT: 12
+# The explicit debug-mode distribution tree handles the largest control net.
+# A limit of 32 avoids excessive buffering of non-critical scan/control paths
+# while remaining conservative for functional logic at 20 MHz.
+MAX_FANOUT_CONSTRAINT: 32
 
 DESIGN_REPAIR_MAX_WIRE_LENGTH: 0
 DESIGN_REPAIR_MAX_SLEW_PCT: 35

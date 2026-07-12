@@ -69,6 +69,15 @@ module chip_top #(
     wire [NUM_BIDIR_PADS-1:0] bidir_CORE2PAD_PU;
     wire [NUM_BIDIR_PADS-1:0] bidir_CORE2PAD_PD;
 
+    // debug_mode is a scan/functional-mode control with loads spread across
+    // the core. Do not drive those loads directly from the I/O cell: the
+    // pad's Y pin has a very small Liberty fanout limit, which otherwise makes
+    // post-placement design repair build a pathological buffer tree. A strong
+    // root followed by one branch per major core region keeps the pad fanout
+    // at one and gives the placer useful physical partition points.
+    wire       debug_mode_root;
+    wire [3:0] debug_mode_branches;
+
     // In the foundry pads, the I/O and
     // core voltage domains are shorted
     `ifdef USE_POWER_PINS
@@ -187,6 +196,32 @@ module chip_top #(
     end
     endgenerate
 
+    (* keep *) gf180mcu_fd_sc_mcu7t5v0__buf_16 debug_mode_root_buf (
+        `ifdef USE_POWER_PINS
+        .VDD (VDD),
+        .VSS (VSS),
+        .VNW (VDD),
+        .VPW (VSS),
+        `endif
+        .I   (bidir_PAD2CORE[0]),
+        .Z   (debug_mode_root)
+    );
+
+    generate
+    for (genvar i=0; i<4; i++) begin : debug_mode_tree
+        (* keep *) gf180mcu_fd_sc_mcu7t5v0__buf_16 branch_buf (
+            `ifdef USE_POWER_PINS
+            .VDD (VDD),
+            .VSS (VSS),
+            .VNW (VDD),
+            .VPW (VSS),
+            `endif
+            .I   (debug_mode_root),
+            .Z   (debug_mode_branches[i])
+        );
+    end
+    endgenerate
+
     // Core design
 
     chip_core #(
@@ -199,6 +234,8 @@ module chip_top #(
     
         .clk        (clk_PAD2CORE),
         .rst_n      (rst_n_PAD2CORE),
+
+        .debug_mode_i (debug_mode_branches),
 
         .bidir_in   (bidir_PAD2CORE),
         .bidir_out  (bidir_CORE2PAD),
