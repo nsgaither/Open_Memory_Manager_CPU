@@ -7,7 +7,7 @@ VERILOG_DEFINES: ["SLOT_0P5X0P5"]
 
 # Specify the pad instances for the padring
 PAD_SOUTH: [
-    
+
     clk_pad,
     rst_n_pad,
 
@@ -52,8 +52,8 @@ PAD_NORTH: [
 
     "bidir\\[22\\].pad",
 
-    "dvss_pads\\[2\\].pad",
     "dvdd_pads\\[2\\].pad",
+    "dvss_pads\\[2\\].pad",
 
     "bidir\\[23\\].pad",
     "bidir\\[24\\].pad",
