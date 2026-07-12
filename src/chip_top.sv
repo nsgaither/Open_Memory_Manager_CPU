@@ -60,6 +60,21 @@ module chip_top #(
     wire clk_PAD2CORE;
     wire rst_n_PAD2CORE;
 
+    // Assert reset immediately, but release it only after two clock edges.
+    // Raw pad reset is confined to these synchronizer flops so every reset
+    // consumer in the core observes deassertion in the same clock domain.
+    (* async_reg = "true" *) logic [1:0] reset_sync_ff;
+    wire rst_n_sync;
+
+    always_ff @(posedge clk_PAD2CORE or negedge rst_n_PAD2CORE) begin
+        if (!rst_n_PAD2CORE)
+            reset_sync_ff <= 2'b00;
+        else
+            reset_sync_ff <= {reset_sync_ff[0], 1'b1};
+    end
+
+    assign rst_n_sync = reset_sync_ff[1];
+
     wire [NUM_BIDIR_PADS-1:0] bidir_PAD2CORE;
     wire [NUM_BIDIR_PADS-1:0] bidir_CORE2PAD;
     wire [NUM_BIDIR_PADS-1:0] bidir_CORE2PAD_OE;
@@ -233,7 +248,7 @@ module chip_top #(
         `endif
     
         .clk        (clk_PAD2CORE),
-        .rst_n      (rst_n_PAD2CORE),
+        .rst_n      (rst_n_sync),
 
         .debug_mode_i (debug_mode_branches),
 

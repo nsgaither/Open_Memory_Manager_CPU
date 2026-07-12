@@ -6,7 +6,7 @@ from pathlib import Path
 
 import cocotb
 from cocotb.clock import Clock
-from cocotb.triggers import ClockCycles, Timer
+from cocotb.triggers import ClockCycles, RisingEdge, Timer
 from cocotb_tools.runner import get_runner
 
 
@@ -137,6 +137,38 @@ async def test_chip_top_pad_smoke(dut):
     assert num_bidir_pads == 48, f"Expected 48 bidirectional pads, got {num_bidir_pads}"
     assert_scalar(dut.rst_n_PAD, 1, "reset pad after reset")
     await ClockCycles(dut.clk_PAD, 5)
+
+
+@cocotb.test()
+async def test_reset_deassertion_is_synchronized(dut):
+    """Raw reset asserts immediately and releases after two clock edges."""
+    num_bidir_pads = len(dut.bidir_PAD)
+    dut.bidir_PAD.value = _pad_drive(num_bidir_pads)
+    dut.clk_PAD.value = 0
+    dut.rst_n_PAD.value = 0
+    cocotb.start_soon(Clock(dut.clk_PAD, 10, unit="ns").start())
+
+    await ClockCycles(dut.clk_PAD, 2)
+    assert_scalar(dut.rst_n_sync, 0, "synchronized reset while asserted")
+
+    # Move deassertion away from the active edge. The first edge fills the
+    # synchronizer; the second releases every downstream reset consumer.
+    await Timer(2, unit="ns")
+    dut.rst_n_PAD.value = 1
+
+    for _ in range(4):
+        await RisingEdge(dut.clk_PAD)
+        await Timer(1, unit="ps")
+        if int(dut.reset_sync_ff.value) & 1:
+            break
+    else:
+        raise AssertionError("reset synchronizer first stage never released")
+
+    assert_scalar(dut.rst_n_sync, 0, "synchronized reset after first edge")
+
+    await RisingEdge(dut.clk_PAD)
+    await Timer(1, unit="ps")
+    assert_scalar(dut.rst_n_sync, 1, "synchronized reset after second edge")
 
 
 @cocotb.test()
@@ -375,6 +407,8 @@ def chip_top_runner():
             defines["SDF_FILE"] = str(annotation_sdf)
     else:
         sources += [
+            pdk_root / pdk / "libs.ref" / scl / "verilog" / "primitives.v",
+            pdk_root / pdk / "libs.ref" / scl / "verilog" / f"{scl}.v",
             proj_path / "../src/chip_top.sv",
             proj_path / "../src/chip_core.sv",
             proj_path / "../ip/picorv32/picorv32.v",
