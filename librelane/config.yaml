@@ -8,8 +8,8 @@ meta:
     +KLayout.SealRing: KLayout.Render
 
     # Disable KLayout DRC
-    #KLayout.DRC: null
-    #Checker.KLayoutDRC: null
+    KLayout.DRC: null
+    Checker.KLayoutDRC: null
 
     # Disable KLayout antenna check
     #KLayout.Antenna: null
@@ -21,12 +21,12 @@ meta:
 
     # Save time during development
     # Enable for sign-off
-    #OpenROAD.IRDropReport: null
-    #Magic.DRC: null
-    #Checker.MagicDRC: null
-    #KLayout.XOR: null
-    #Netgen.LVS: null
-    #Checker.LVS: null
+    OpenROAD.IRDropReport: null
+    Magic.DRC: null
+    Checker.MagicDRC: null
+    KLayout.XOR: null
+    Netgen.LVS: null
+    Checker.LVS: null
 
 DESIGN_NAME: chip_top
 VERILOG_FILES:
@@ -62,7 +62,7 @@ MAX_FANOUT_CONSTRAINT: 32
 MAX_CAPACITANCE_CONSTRAINT: null
 
 DESIGN_REPAIR_MAX_WIRE_LENGTH: 0
-DESIGN_REPAIR_MAX_SLEW_PCT: 25
+DESIGN_REPAIR_MAX_SLEW_PCT: 30
 DESIGN_REPAIR_MAX_CAP_PCT: 20
 DESIGN_REPAIR_REMOVE_BUFFERS: False
 
@@ -70,9 +70,9 @@ RSZ_DONT_TOUCH_RX: '^bidir_PAD2CORE.*11.*$'
 GRT_RESIZER_SETUP_SLACK_MARGIN: 1.0  
 
 GRT_DESIGN_REPAIR_RUN_GRT: True
-GRT_DESIGN_REPAIR_MAX_WIRE_LENGTH: 500
-GRT_DESIGN_REPAIR_MAX_SLEW_PCT: 45
-GRT_DESIGN_REPAIR_MAX_CAP_PCT: 30
+GRT_DESIGN_REPAIR_MAX_WIRE_LENGTH: 0
+GRT_DESIGN_REPAIR_MAX_SLEW_PCT: 35
+GRT_DESIGN_REPAIR_MAX_CAP_PCT: 20
 
 RUN_POST_GRT_DESIGN_REPAIR: true
 RUN_POST_GRT_RESIZER_TIMING: true
@@ -115,7 +115,7 @@ IGNORE_DISCONNECTED_MODULES:
 # Clock
 CLOCK_PORT: clk_PAD
 CLOCK_NET: clk_pad/Y
-CLOCK_PERIOD: 33.333 # 30 MHz
+CLOCK_PERIOD: 28.571 # 35 MHz
 
 # Overfix hold violations
 PL_RESIZER_HOLD_SLACK_MARGIN: 0.35
