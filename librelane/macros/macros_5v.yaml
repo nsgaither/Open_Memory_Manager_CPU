@@ -104,7 +104,7 @@ MACROS:
     lef:
       - pdk_dir::libs.ref/gf180mcu_fd_ip_sram/lef/gf180mcu_fd_ip_sram__sram64x8m8wm1.lef
     vh:
-      - pdk_dir::libs.ref/gf180mcu_fd_ip_sram/verilog/gf180mcu_fd_ip_sram__sram64x8m8wm1__blackbox_pp.v
+      - dir::../src/sram_models/gf180mcu_fd_ip_sram__sram64x8m8wm1__blackbox_pp.v
     lib:
       "*_tt_025C_5v00":
         - pdk_dir::libs.ref/gf180mcu_fd_ip_sram/lib/gf180mcu_fd_ip_sram__sram64x8m8wm1__tt_025C_5v00.lib
