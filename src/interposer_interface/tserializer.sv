@@ -24,7 +24,7 @@ module tserializer #(
 
     // serial interface
     output logic                   req_o,
-    output logic [NUM_PINS-1:0]    serial_o 
+    output logic [NUM_PINS-1:0]    serial_o
 );  
 
     // parameters
@@ -137,6 +137,5 @@ module tserializer #(
     assign serial_o = shift_arr[curr_msg_len-1];
     assign req_o = (current_state == SEND);
     assign ready_o = (current_state != SEND);
-
 
 endmodule

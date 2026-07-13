@@ -15,13 +15,13 @@ module rserializer #(
 
     input  logic [NUM_PINS-1 : 0] serial_i,
     // Branch 0 controls the receive state. The four remaining physical
-    // branches enable shift words round-robin; in the production 9-pin,
-    // 36-bit receiver there is exactly one branch per word.
+    // branches enable shift words round-robin; a 36-bit, 9-pin receiver has
+    // one branch per word, while longer receivers reuse them round-robin.
     input  logic [4:0]            req_i_branches,
 
     output logic                  valid_o,
     output logic [int'($ceil(real'(MAX_MSG_LEN) / NUM_PINS) * NUM_PINS) - 1:0] data_o,
-    input  logic                  ready_i        
+    input  logic                  ready_i
 
 );
 
