@@ -55,6 +55,7 @@ module mem128x4
   logic [5:0] sram_addr;
   logic [7:0] data_read_from_sram;
   logic [7:0] sram_bit_mask;
+  logic       sram_gwen_logic;
   logic       sram_gwen;
 
   always_ff @(posedge clk_i) begin
@@ -99,7 +100,7 @@ module mem128x4
     data_to_write_d = data_to_write_q;
 
     sram_enable_n = 1'b1;
-    sram_gwen     = 1'b1;
+    sram_gwen_logic = 1'b1;
     sram_bit_mask = 8'hFF;
 
     case (state_q)
@@ -110,7 +111,7 @@ module mem128x4
 
       RESET_DATA: begin
         sram_enable_n = 1'b0;
-        sram_gwen     = 1'b0;
+        sram_gwen_logic = 1'b0;
         sram_bit_mask = 8'h00;
         if (reset_addr_q == 6'd63)
           state_d = IDLE;
@@ -127,7 +128,7 @@ module mem128x4
 
           if (!mem_read_en_i) begin
             sram_enable_n = 1'b0;
-            sram_gwen     = 1'b0;
+            sram_gwen_logic = 1'b0;
             if (mem_addr_bit0) begin
               sram_bit_mask   = 8'b00001111;
               data_to_write_d = {mem_wdata_i, 4'b0000};
@@ -141,7 +142,7 @@ module mem128x4
 
       MEM_REQ: begin
         sram_enable_n = 1'b0;
-        sram_gwen     = 1'b1;     // read only
+        sram_gwen_logic = 1'b1;     // read only
         data_read_d   = data_read_from_sram;
         state_d       = MEM_RESP;
       end
@@ -159,7 +160,7 @@ module mem128x4
     // macro. The inserted state takes effect after debug mode is released.
     if (debug_mode_i) begin
       sram_enable_n = 1'b1;
-      sram_gwen     = 1'b1;
+      sram_gwen_logic = 1'b1;
       sram_bit_mask = 8'hFF;
     end
   end
@@ -193,6 +194,25 @@ module mem128x4
         data_to_write = {4'b0000, mem_wdata_i};
     end
   end
+
+  `ifdef __pnr__
+  // Keep a dedicated launch buffer on the SRAM write-enable control. This
+  // breaks up the long route around the SRAM macro and protects its slew.
+  (* keep *) gf180mcu_fd_sc_mcu7t5v0__buf_4 sram_gwen_launch_buf (
+    `ifdef USE_POWER_PINS
+    // verilator lint_off ASSIGNIN
+    .VDD (VDD),
+    .VSS (VSS),
+    .VNW (VDD),
+    .VPW (VSS),
+    // verilator lint_on ASSIGNIN
+    `endif
+    .I   (sram_gwen_logic),
+    .Z   (sram_gwen)
+  );
+  `else
+  assign sram_gwen = sram_gwen_logic;
+  `endif
 
   gf180mcu_fd_ip_sram__sram64x8m8wm1 sram0 (
     .CLK (clk_i),

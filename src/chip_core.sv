@@ -132,7 +132,7 @@ module chip_core #(
 
         .TWO_STAGE_SHIFT      (1),
         .BARREL_SHIFTER       (0),
-        .TWO_CYCLE_COMPARE    (0),
+        .TWO_CYCLE_COMPARE    (1),
         .TWO_CYCLE_ALU        (0),
 
         .COMPRESSED_ISA       (0),
