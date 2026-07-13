@@ -74,7 +74,7 @@ async def reset_dut(dut):
 
     dut.snoop_ready_i.value = 0
 
-    dut.req_i.value = 0
+    dut.req_i_branches.value = 0
     dut.serial_i.value = 0
 
     await Timer(50, unit="ns")
@@ -113,7 +113,7 @@ async def send_message(dut, data, msg_len):
     else:
         NUM_PINS = 9
 
-    dut.req_i.value = 1
+    dut.req_i_branches.value = 0x1F
 
     t_len = ceil(msg_len / NUM_PINS)
     mask = (1 << NUM_PINS) - 1
@@ -125,7 +125,7 @@ async def send_message(dut, data, msg_len):
         dut.serial_i.value = curr_data
         await FallingEdge(dut.clk_i)
     
-    dut.req_i.value = 0
+    dut.req_i_branches.value = 0
     dut.serial_i.value = 0
 
 def set_packet(dut, ccmd : CCMD1H, mem_addr, mem_wdata):
@@ -485,4 +485,3 @@ def directory_interface_runner():
 
 if __name__ == "__main__":
     directory_interface_runner()
-

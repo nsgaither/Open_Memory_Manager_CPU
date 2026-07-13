@@ -222,15 +222,23 @@ async def test_req_i_pad_input_path(dut):
 
     num_bidir_pads = await start_and_reset(dut)
 
-    req_i_signal = gl_pad2core(dut, REQ_I_PAD) if gl else dut.i_chip_core.req_i
+    req_i_signal = gl_pad2core(dut, REQ_I_PAD) if gl else dut.i_chip_core.req_i_branches
 
     dut.bidir_PAD.value = _pad_drive(num_bidir_pads, {REQ_I_PAD: 1})
     await Timer(2, unit="ns")
-    assert_scalar(req_i_signal, 1, "req_i pad input high")
+    if gl:
+        assert_scalar(req_i_signal, 1, "req_i pad input high")
+    else:
+        for branch in range(5):
+            assert_vector_bit(req_i_signal, branch, 1, f"req_i branch {branch} high")
 
     dut.bidir_PAD.value = _pad_drive(num_bidir_pads, {REQ_I_PAD: 0})
     await Timer(2, unit="ns")
-    assert_scalar(req_i_signal, 0, "req_i pad input low")
+    if gl:
+        assert_scalar(req_i_signal, 0, "req_i pad input low")
+    else:
+        for branch in range(5):
+            assert_vector_bit(req_i_signal, branch, 0, f"req_i branch {branch} low")
 
 
 @cocotb.test()

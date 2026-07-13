@@ -14,7 +14,10 @@ module rserializer #(
     output logic                  scan_out_o,
 
     input  logic [NUM_PINS-1 : 0] serial_i,
-    input  logic                  req_i,
+    // Branch 0 controls the receive state. The four remaining physical
+    // branches enable shift words round-robin; in the production 9-pin,
+    // 36-bit receiver there is exactly one branch per word.
+    input  logic [4:0]            req_i_branches,
 
     output logic                  valid_o,
     output logic [int'($ceil(real'(MAX_MSG_LEN) / NUM_PINS) * NUM_PINS) - 1:0] data_o,
@@ -53,8 +56,8 @@ module rserializer #(
     always_comb begin : next_state_comb
         next_state = current_state;
         case (current_state)
-            IDLE: if (req_i) next_state = RECEIVE;
-            RECEIVE: if (!req_i) next_state = IDLE;
+            IDLE: if (req_i_branches[0]) next_state = RECEIVE;
+            RECEIVE: if (!req_i_branches[0]) next_state = IDLE;
             default: next_state = IDLE;
         endcase
     end
@@ -69,13 +72,13 @@ module rserializer #(
             shift_arr <= {
                 scan_shift_state[shift_depth*shift_width-2:0], scan_after_state
             };
-        end else if (req_i) begin
-            shift_arr[0] <= serial_i;
-            for (int i = 1; i < shift_depth; i++) begin : shift
-                shift_arr[i] <= shift_arr[i-1];
-            end
         end else begin
-            shift_arr <= shift_arr;
+            if (req_i_branches[1])
+                shift_arr[0] <= serial_i;
+            for (int i = 1; i < shift_depth; i++) begin : shift
+                if (req_i_branches[1 + (i % 4)])
+                    shift_arr[i] <= shift_arr[i-1];
+            end
         end
     end
 

@@ -42,7 +42,7 @@ module cache_interface #(
 
     // DOWNSTREAM ------------------------------------
     // wrapped serializer IO
-    input  logic                 req_i,
+    input  logic [4:0]           req_i_branches,
     input  logic [NUM_RPINS-1:0] serial_i,
     output logic                 req_o,
     output logic [NUM_TPINS-1:0] serial_o
@@ -149,7 +149,7 @@ module cache_interface #(
     // RECEIVING
     wire [(int'($ceil(real'(36) / NUM_RPINS)) * NUM_RPINS)-1:0] rpacket_full;
     wire rvalid_o;
-    assign rbusy_o = req_i;
+    assign rbusy_o = req_i_branches[0];
     rserializer #(
         .NUM_PINS    (NUM_RPINS),
         .MAX_MSG_LEN (36)
@@ -161,7 +161,7 @@ module cache_interface #(
         .scan_out_o    (scan_after_rserializer),
         
         .serial_i (serial_i),
-        .req_i    (req_i),
+        .req_i_branches (req_i_branches),
 
         .valid_o  (rvalid_o),
         .data_o   (rpacket_full),

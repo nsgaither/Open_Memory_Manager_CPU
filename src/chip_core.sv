@@ -15,6 +15,8 @@ module chip_core #(
     // Physically buffered scan/functional-mode controls. Separate branches
     // prevent one pad-driven net from spanning every scan mux in the core.
     input  wire  [3:0] debug_mode_i,
+    // One branch for request-state logic and one per receive shift word.
+    input  wire  [4:0] req_i_branches,
     
     input  wire  [NUM_BIDIR_PADS-1:0] bidir_in,   // Input value
     output logic [NUM_BIDIR_PADS-1:0] bidir_out,  // Output value
@@ -320,7 +322,6 @@ module chip_core #(
     wire                 rbusy;
     wire                 req_o;
     wire [NUM_TPINS-1:0] serial_o;
-    logic                 req_i;
     logic [NUM_RPINS-1:0] serial_i;
 
     cache_interface #(
@@ -363,7 +364,7 @@ module chip_core #(
         // DOWNSTREAM ------------------------------------
         
         // wrapped serializer IO
-        .req_i          (req_i),
+        .req_i_branches (req_i_branches),
         .serial_i       (serial_i),
         .req_o          (req_o),
         .serial_o       (serial_o)
@@ -405,7 +406,6 @@ module chip_core #(
         bidir_out[TRAP_ID] = trap;
 
         // serial
-        req_i = bidir_data_i[REQ_I_ID];
         serial_i = bidir_data_i[SERIAL_I_START_ID +: NUM_RPINS];
         bidir_out[REQ_O_ID] = req_o;
         bidir_out[SERIAL_O_START_ID +: NUM_TPINS] = serial_o;

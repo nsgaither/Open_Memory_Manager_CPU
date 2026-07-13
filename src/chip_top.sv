@@ -93,6 +93,14 @@ module chip_top #(
     wire       debug_mode_root;
     wire [3:0] debug_mode_branches;
 
+    // req_i drives the receive state machine and four nine-bit shift-register
+    // words. Keep those physical regions off the pad net: the pad drives one
+    // strong root, and each consumer group gets its own strong branch.
+    localparam int REQ_I_ID = 11;
+    localparam int REQ_I_BRANCHES = 5;
+    wire req_i_root;
+    wire [REQ_I_BRANCHES-1:0] req_i_branches;
+
     // In the foundry pads, the I/O and
     // core voltage domains are shorted
     `ifdef USE_POWER_PINS
@@ -211,6 +219,32 @@ module chip_top #(
     end
     endgenerate
 
+    (* keep *) gf180mcu_fd_sc_mcu7t5v0__buf_16 req_i_root_buf (
+        `ifdef USE_POWER_PINS
+        .VDD (VDD),
+        .VSS (VSS),
+        .VNW (VDD),
+        .VPW (VSS),
+        `endif
+        .I   (bidir_PAD2CORE[REQ_I_ID]),
+        .Z   (req_i_root)
+    );
+
+    generate
+    for (genvar i=0; i<REQ_I_BRANCHES; i++) begin : req_i_tree
+        (* keep *) gf180mcu_fd_sc_mcu7t5v0__buf_16 branch_buf (
+            `ifdef USE_POWER_PINS
+            .VDD (VDD),
+            .VSS (VSS),
+            .VNW (VDD),
+            .VPW (VSS),
+            `endif
+            .I   (req_i_root),
+            .Z   (req_i_branches[i])
+        );
+    end
+    endgenerate
+
     (* keep *) gf180mcu_fd_sc_mcu7t5v0__buf_16 debug_mode_root_buf (
         `ifdef USE_POWER_PINS
         .VDD (VDD),
@@ -251,6 +285,7 @@ module chip_top #(
         .rst_n      (rst_n_sync),
 
         .debug_mode_i (debug_mode_branches),
+        .req_i_branches (req_i_branches),
 
         .bidir_in   (bidir_PAD2CORE),
         .bidir_out  (bidir_CORE2PAD),
