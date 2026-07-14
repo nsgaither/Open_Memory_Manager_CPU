@@ -38,25 +38,27 @@ class Metadata(IntEnum):
     WhoAmI          = 0b1110
     ResetDone       = 0b1111
 
+# cache_cmd_i / bus_dircmd_o now carry the 4-bit binary metadata code directly
+# (no one-hot). These map to the same values as the Metadata enum above.
 class CCMD1H(IntEnum):
-    BusRD              = 0b000000001
-    BusRDX             = 0b000000010
-    BusUPGR            = 0b000000100
-    EvictClean         = 0b000001000
-    EvictDirty         = 0b000010000
-    SnoopBusRD_Ack     = 0b000100000
-    SnoopBusRDX_Ack    = 0b001000000
-    SnoopBusUPGR_Ack   = 0b010000000
-    ResetDone          = 0b100000000
+    BusRD              = 1
+    BusRDX             = 2
+    BusUPGR            = 3
+    EvictClean         = 5
+    EvictDirty         = 6
+    SnoopBusRD_Ack     = 9
+    SnoopBusRDX_Ack    = 10
+    SnoopBusUPGR_Ack   = 11
+    ResetDone          = 15
 
 class DCMD1H(IntEnum):
-    BusRD_Ack        = 0b0000001
-    BusRDX_Ack       = 0b0000010
-    BusUPGR_Ack      = 0b0000100
-    SnoopBusRD       = 0b0001000
-    SnoopBusRDX      = 0b0010000
-    SnoopBusUPGR     = 0b0100000
-    WhoAmI           = 0b1000000
+    BusRD_Ack        = 1
+    BusRDX_Ack       = 2
+    BusUPGR_Ack      = 3
+    SnoopBusRD       = 9
+    SnoopBusRDX      = 10
+    SnoopBusUPGR     = 11
+    WhoAmI           = 14
 
 async def start_clock(dut):
     cocotb.start_soon(Clock(dut.clk_i, 10, unit="ns").start())
@@ -326,7 +328,7 @@ async def test_receive_BusRD_Ack(dut):
     bus_data = int(dut.bus_data_o.value)
     bus_dircmd = int(dut.bus_dircmd_o.value)
     
-    expected_dcmd = DCMD1H.BusRD_Ack & 0b111
+    expected_dcmd = DCMD1H.BusRD_Ack
 
     assert bus_data == expected_bus_data, f"Expected mem_rdata {expected_bus_data}, got {bus_data}"
     assert bus_dircmd == expected_dcmd, f"Expected directory_cmd {expected_dcmd}, got {bus_dircmd}"
@@ -364,7 +366,7 @@ async def test_receive_BusUPGR_Ack(dut):
 
     bus_dircmd = int(dut.bus_dircmd_o.value)
     
-    expected_dcmd = DCMD1H.BusUPGR_Ack & 0b111
+    expected_dcmd = DCMD1H.BusUPGR_Ack
     assert bus_dircmd == expected_dcmd, f"Expected directory_cmd {expected_dcmd}, got {bus_dircmd}"
     assert dut.bus_valid_o.value == 1, "bus_valid_o should be high after BusRD_Ack command"
     assert dut.snoop_valid_o.value == 0, "snoop_valid_o should not be high after BusRD_Ack command"
@@ -402,7 +404,7 @@ async def test_receive_SnoopBusRDX(dut):
     bus_data = int(dut.snoop_data_o.value)
     bus_dircmd = int(dut.snoop_dircmd_o.value)
     
-    expected_dcmd = (DCMD1H.SnoopBusRDX >> 3) & 0b111
+    expected_dcmd = DCMD1H.SnoopBusRDX
 
     assert bus_data == expected_bus_data, f"Expected mem_rdata {expected_bus_data}, got {bus_data}"
     assert bus_dircmd == expected_dcmd, f"Expected directory_cmd {expected_dcmd}, got {bus_dircmd}"

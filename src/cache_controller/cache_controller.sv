@@ -24,17 +24,17 @@ module cache_controller
   output logic        cache_valid_o,
   output logic [31:0] cache_addr_o,
   output logic [31:0] cache_data_o,
-  output logic [8:0]  cache_cmd_o,
+  output logic [3:0]  cache_cmd_o,
   input  logic        cache_ready_i,
   // ── Directory → Cache (inbound coherence response) ────────────────
   input  logic        bus_valid_i,
   input  logic [31:0] bus_data_i,
-  input  logic [2:0]  bus_dircmd_i,
+  input  logic [3:0]  bus_dircmd_i,
   output logic        bus_ready_o,
   // ── Snoop Request (Directory → Cache) ─────────────────────────────
   input  logic        snoop_valid_i,
   input  logic [31:0] snoop_addr_i,
-  input  logic [2:0]  snoop_dircmd_i,
+  input  logic [3:0]  snoop_dircmd_i,
   output logic        snoop_ready_o,
   // ── CPU-initiated Flush ─────────────────────────────────────────
   input  logic        flush_valid_i,
@@ -52,23 +52,27 @@ module cache_controller
   localparam logic [1:0] S_SHARED   = 2'b01;
   localparam logic [1:0] S_MODIFIED = 2'b10;
 
-  // snoop acks
-  localparam logic [8:0] SnoopBusRD_Ack_1h   = 9'b100000;
-  localparam logic [8:0] SnoopBusRDX_Ack_1h  = 9'b1000000;
-  localparam logic [8:0] SnoopBusUPGR_Ack_1h = 9'b10000000;
+  // Normalized 4-bit binary command codes (match the serial-packet `metadata`
+  // encoding used end-to-end). Legacy `_1h` names retained; values are now the
+  // compact binary codes, not one-hot.
+  // snoop acks (cache -> dir): reuse the snoop metadata codes (direction disambiguates)
+  localparam logic [3:0] SnoopBusRD_Ack_1h   = 4'd9;
+  localparam logic [3:0] SnoopBusRDX_Ack_1h  = 4'd10;
+  localparam logic [3:0] SnoopBusUPGR_Ack_1h = 4'd11;
 
-  // coherence cmds
-  localparam logic [8:0] NULLcc1h            = 9'b0;
-  localparam logic [8:0] BusRD_1h            = 9'b1;
-  localparam logic [8:0] BusRDX_1h           = 9'b10;
-  localparam logic [8:0] BusUPGR_1h          = 9'b100;
-  localparam logic [8:0] EvictClean_1h       = 9'b1000;
-  localparam logic [8:0] EvictDirty_1h       = 9'b10000;
+  // coherence cmds (cache -> dir)
+  localparam logic [3:0] NULLcc1h            = 4'd0;
+  localparam logic [3:0] BusRD_1h            = 4'd1;
+  localparam logic [3:0] BusRDX_1h           = 4'd2;
+  localparam logic [3:0] BusUPGR_1h          = 4'd3;
+  localparam logic [3:0] EvictClean_1h       = 4'd5;
+  localparam logic [3:0] EvictDirty_1h       = 4'd6;
 
-  // coherence cmd acks
-  localparam logic [2:0] BUSRD_ACK   = 3'b001;
-  localparam logic [2:0] BUSRDX_ACK  = 3'b010;
-  localparam logic [2:0] BUSUPGR_ACK = 3'b100;
+  // coherence cmd acks (dir -> cache bus dircmd): echo the request's metadata code
+  localparam logic [3:0] BUSRD_ACK       = 4'd1;
+  localparam logic [3:0] BUSRDX_ACK      = 4'd2;
+  localparam logic [3:0] BUSUPGR_ACK     = 4'd3;
+  localparam logic [3:0] EVICT_DIRTY_ACK = 4'd6;
 
   // Address layout: addr[6:0]=index (7 bits), addr[10:7]=tag (4 bits)
   // -- main memory is 2048 words (11 bits), so tag = 11 - 7 = 4 bits;
@@ -117,7 +121,12 @@ module cache_controller
       CPU_FLUSH_LOOKUP_RESP          = 5'd17,
       CPU_FLUSH_EVICT                = 5'd18,
       CPU_FLUSH_INVALIDATE_REQ       = 5'd19,
-      CPU_FLUSH_INVALIDATE_RESP      = 5'd20
+      CPU_FLUSH_INVALIDATE_RESP      = 5'd20,
+      // Wait for the directory's dirty-writeback ack before issuing the next
+      // outbound request, so the fire-and-forget evict can't be clobbered in
+      // the directory-interface lossy pipe by the following refill.
+      CPU_EVICT_DIRTY_ACK            = 5'd21,
+      CPU_FLUSH_EVICT_ACK            = 5'd22
   } cpu_state_t;
 
 
@@ -130,7 +139,7 @@ module cache_controller
   logic [31:0] cpu_wdata_q,      cpu_wdata_d;
   logic [3:0]  cpu_wstrb_q,      cpu_wstrb_d;
   logic [1:0]  cpu_next_state_q, cpu_next_state_d;
-  logic [8:0]  cpu_issue_cmd_q,  cpu_issue_cmd_d;
+  logic [3:0]  cpu_issue_cmd_q,  cpu_issue_cmd_d;
   logic        cpu_cmd_valid_q,  cpu_cmd_valid_d;
   logic [31:0] cpu_line_data_q,  cpu_line_data_d;
   logic [3:0]  cpu_line_tag_q,   cpu_line_tag_d;
@@ -139,14 +148,14 @@ module cache_controller
 
   // Snoop-side latched info about the current snoop
   logic [31:0] snp_addr_q,       snp_addr_d;
-  logic [2:0]  snp_dircmd_q,     snp_dircmd_d;
+  logic [3:0]  snp_dircmd_q,     snp_dircmd_d;
   logic [1:0]  snp_next_state_q, snp_next_state_d;
   logic [3:0]  snp_tag_q,        snp_tag_d;
   logic        snp_flush_q,      snp_flush_d;
   logic [31:0] snp_flush_data_q, snp_flush_data_d;
   logic [1:0]  snp_line_state_q, snp_line_state_d;   
 
-  logic [197:0] scan_state;
+  logic [198:0] scan_state;
   wire scan_after_cache_mem;
 
   assign scan_state = {
@@ -156,7 +165,7 @@ module cache_controller
     cpu_issue_cmd_q, cpu_next_state_q, cpu_wstrb_q, cpu_wdata_q,
     cpu_addr_q, snp_state_q, cpu_state_q
   };
-  assign scan_out_o[0] = scan_state[197];
+  assign scan_out_o[0] = scan_state[198];
 
 
   // cache_mem wires
@@ -235,13 +244,13 @@ module cache_controller
   logic        outbound_cpu_cache_valid_i;
   logic [31:0] outbound_cpu_cache_addr_i;
   logic [31:0] outbound_cpu_cache_data_i;
-  logic [8:0]  outbound_cpu_cache_cmd_i;
+  logic [3:0]  outbound_cpu_cache_cmd_i;
   logic        outbound_cpu_cache_ready_o;
 
   logic        outbound_snoop_cache_valid_i;
   logic [31:0] outbound_snoop_cache_addr_i;
   logic [31:0] outbound_snoop_cache_data_i;
-  logic [8:0]  outbound_snoop_cache_cmd_i;
+  logic [3:0]  outbound_snoop_cache_cmd_i;
   logic        outbound_snoop_cache_ready_o;
 
   outbound_arbiter outbound_ctrl (
@@ -287,7 +296,7 @@ module cache_controller
   // on_processor_event_state_machine
   // ============================================================
   logic [1:0] on_processor_event_state_o;
-  logic [8:0] on_processor_event_issue_cmd_o;
+  logic [3:0] on_processor_event_issue_cmd_o;
   logic       on_processor_event_cmd_valid_o;
   on_processor_event_state_machine u_proc_sm (
     .current_state_i   ((tag_match_cpu_q) ? cpu_line_state_q : S_INVALID),
@@ -331,14 +340,14 @@ module cache_controller
       cpu_wdata_q      <= 32'b0;
       cpu_wstrb_q      <= 4'b0;
       cpu_next_state_q <= S_INVALID;
-      cpu_issue_cmd_q  <= 9'b0;
+      cpu_issue_cmd_q  <= 4'b0;
       cpu_cmd_valid_q  <= 1'b0;
       cpu_line_data_q  <= 32'b0;
       cpu_line_tag_q   <= 4'd0;
       cpu_line_state_q <= S_INVALID;    // NEW
       tag_match_cpu_q  <= 1'b1;
       snp_addr_q       <= 32'b0;
-      snp_dircmd_q     <= 3'b0;
+      snp_dircmd_q     <= 4'b0;
       snp_next_state_q <= S_INVALID;
       snp_flush_q      <= 1'b0;
       snp_flush_data_q <= 32'b0;
@@ -351,7 +360,7 @@ module cache_controller
         cpu_line_state_q, cpu_line_tag_q, cpu_line_data_q, cpu_cmd_valid_q,
         cpu_issue_cmd_q, cpu_next_state_q, cpu_wstrb_q, cpu_wdata_q,
         cpu_addr_q, snp_state_q, cpu_state_q
-      } <= {scan_state[196:0], scan_in_i[0]};
+      } <= {scan_state[197:0], scan_in_i[0]};
     end else begin
       cpu_state_q      <= cpu_state_d;
       snp_state_q      <= snp_state_d;
@@ -499,13 +508,15 @@ module cache_controller
         // the directory's _send_snoop, which reads the flushed data
         // straight out of the snoop response.
         outbound_snoop_cache_data_i  = snp_flush_q ? snp_flush_data_q : 32'd0;
-        if (snp_dircmd_q == 3'b001) begin
+        // snp_dircmd_q holds the received snoop-request metadata code
+        // (SnoopBusRD=9, SnoopBusRDX=10, SnoopBusUPGR=11); ack echoes the same code.
+        if (snp_dircmd_q == 4'd9) begin
           outbound_snoop_cache_cmd_i = SnoopBusRD_Ack_1h;
         end
-        else if (snp_dircmd_q == 3'b010) begin
+        else if (snp_dircmd_q == 4'd10) begin
           outbound_snoop_cache_cmd_i = SnoopBusRDX_Ack_1h;
         end
-        else if (snp_dircmd_q == 3'b100) begin
+        else if (snp_dircmd_q == 4'd11) begin
           outbound_snoop_cache_cmd_i = SnoopBusUPGR_Ack_1h;
         end
         else begin
@@ -632,7 +643,19 @@ module cache_controller
         end
 
         if (outbound_cpu_cache_ready_o) begin
-          // evicts have no ack in this system
+          // A dirty writeback must be acknowledged before we issue the refill,
+          // or the refill clobbers it in the directory's lossy request pipe.
+          // Clean evicts carry no unique data and stay fire-and-forget.
+          if (cpu_line_state_q == S_MODIFIED) cpu_state_d = CPU_EVICT_DIRTY_ACK;
+          else                                cpu_state_d = CPU_TAG_MATCH;
+        end
+      end
+
+      CPU_EVICT_DIRTY_ACK: begin
+        // Wait for the directory to confirm the dirty writeback is persisted,
+        // then proceed to the refill (tag-miss path).
+        if (bus_valid_i && (bus_dircmd_i == EVICT_DIRTY_ACK)) begin
+          bus_ready_o = 1'b1;
           cpu_state_d = CPU_TAG_MATCH;
         end
       end
@@ -866,7 +889,16 @@ module cache_controller
         end
 
         if (outbound_cpu_cache_ready_o) begin
-          // evicts have no ack in this system
+          // Dirty flush writeback must be acked before we invalidate/continue,
+          // same drop hazard as CPU_TAG_MISS. Clean flush stays fire-and-forget.
+          if (cpu_line_state_q == S_MODIFIED) cpu_state_d = CPU_FLUSH_EVICT_ACK;
+          else                                cpu_state_d = CPU_FLUSH_INVALIDATE_REQ;
+        end
+      end
+
+      CPU_FLUSH_EVICT_ACK: begin
+        if (bus_valid_i && (bus_dircmd_i == EVICT_DIRTY_ACK)) begin
+          bus_ready_o = 1'b1;
           cpu_state_d = CPU_FLUSH_INVALIDATE_REQ;
         end
       end

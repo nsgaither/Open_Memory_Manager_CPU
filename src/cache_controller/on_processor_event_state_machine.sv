@@ -9,7 +9,7 @@ module on_processor_event_state_machine
 
   // output interface     
   output logic [1:0] next_state_o,
-  output logic [8:0] issue_cmd_o,
+  output logic [3:0] issue_cmd_o,
   output logic [0:0] issue_cmd_valid_o
 );
 
@@ -25,13 +25,15 @@ module on_processor_event_state_machine
     READ  = 1'b1  
   } processor_event;
 
-  typedef enum logic [8:0] {
-    BUS_RD      = 9'b1,        
-    BUS_RDX     = 9'b10,       
-    BUS_UPGR    = 9'b100,      
-    EVICT_CLEAN = 9'b1000,   
-    EVICT_DIRTY = 9'b10000,   
-    NONE        = 9'b0   
+  // Normalized 4-bit binary command codes (match the serial-packet `metadata`
+  // encoding used end-to-end: BusRD=1 BusRDX=2 BusUPGR=3 EvictClean=5 EvictDirty=6).
+  typedef enum logic [3:0] {
+    BUS_RD      = 4'd1,
+    BUS_RDX     = 4'd2,
+    BUS_UPGR    = 4'd3,
+    EVICT_CLEAN = 4'd5,
+    EVICT_DIRTY = 4'd6,
+    NONE        = 4'd0
   } bus_transaction;
 
   

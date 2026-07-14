@@ -282,17 +282,17 @@ module chip_core #(
     wire        cache_valid;
     wire [31:0] cache_addr;
     wire [31:0] cache_data;
-    wire [ 8:0] cache_cmd;
+    wire [ 3:0] cache_cmd;
     wire        cache_ready;
 
     wire        bus_valid;
     wire [31:0] bus_data;
-    wire [ 2:0] bus_dircmd;
+    wire [ 3:0] bus_dircmd;
     wire        bus_ready;
 
     wire        snoop_valid;
     wire [31:0] snoop_data;
-    wire [ 2:0] snoop_dircmd;
+    wire [ 3:0] snoop_dircmd;
     wire        snoop_ready;
 
     cache_controller u_cache_controller (

@@ -26,24 +26,26 @@ from emulation.config import MAIN_MEM_SIZE_IN_WORDS, INDEX_WIDTH
 # Constants
 # ─────────────────────────────────────────────────────────────────────────────
 
-CMD_BUS_RD   = 0b000000001
-CMD_BUS_RDX  = 0b000000010
-CMD_BUS_UPGR = 0b000000100
+# Normalized 4-bit binary metadata command codes (match the RTL end-to-end).
+CMD_BUS_RD   = 1
+CMD_BUS_RDX  = 2
+CMD_BUS_UPGR = 3
 
-BUSRD_ACK   = 0b001
-BUSRDX_ACK  = 0b010
-BUSUPGR_ACK = 0b100
+# bus_dircmd_i (directory -> cache ack): echoes the request's metadata code.
+BUSRD_ACK       = 1
+BUSRDX_ACK      = 2
+BUSUPGR_ACK     = 3
+EVICT_DIRTY_ACK = 6
 
-# snoop_dircmd_i encoding (directory -> cache)
-SNOOP_BUS_RD_1H   = 0b001
-SNOOP_BUS_RDX_1H  = 0b010
-SNOOP_BUS_UPGR_1H = 0b100
+# snoop_dircmd_i encoding (directory -> cache): snoop-request metadata codes
+SNOOP_BUS_RD_1H   = 9
+SNOOP_BUS_RDX_1H  = 10
+SNOOP_BUS_UPGR_1H = 11
 
-# cache_cmd_o encoding for snoop acks (cache -> directory, shares the bus
-# with the CPU-side coherence cmds, see cache_controller.sv Snoop*_Ack_1h)
-SNOOP_ACK_RD_1H   = 0b000100000
-SNOOP_ACK_RDX_1H  = 0b001000000
-SNOOP_ACK_UPGR_1H = 0b010000000
+# cache_cmd_o encoding for snoop acks (cache -> directory): same snoop metadata codes
+SNOOP_ACK_RD_1H   = 9
+SNOOP_ACK_RDX_1H  = 10
+SNOOP_ACK_UPGR_1H = 11
 
 SNOOP_1H_TO_ACK = {
     SNOOP_BUS_RD_1H:   SNOOP_ACK_RD_1H,
@@ -230,6 +232,19 @@ async def one_read(dut, addr: int):
         await FallingEdge(dut.clk_i)
         await FallingEdge(dut.clk_i)
         dut.cache_ready_i.value = 1
+
+        # Part 2: a dirty writeback is acknowledged before the refill is issued.
+        # The DUT parks in CPU_EVICT_DIRTY_ACK until it sees this ack, so without
+        # it the follow-up bus request below would never appear. Clean evicts
+        # stay fire-and-forget.
+        if dir_req.coherence_cmd == CoherenceCmd.EVICT_DIRTY:
+            dut.bus_valid_i.value = 1
+            dut.bus_data_i.value = 0
+            dut.bus_dircmd_i.value = EVICT_DIRTY_ACK
+            await wait_for_signal(dut, dut.bus_ready_o)
+            dut.bus_valid_i.value = 0
+            dut.bus_dircmd_i.value = 0
+
         await wait_for_signal(dut, dut.cache_valid_o)
         dut.cache_ready_i.value = 1
 
@@ -341,6 +356,19 @@ async def one_write(dut, addr, data, wstrb):
         await FallingEdge(dut.clk_i)
         await FallingEdge(dut.clk_i)
         dut.cache_ready_i.value = 1
+
+        # Part 2: a dirty writeback is acknowledged before the refill is issued.
+        # The DUT parks in CPU_EVICT_DIRTY_ACK until it sees this ack, so without
+        # it the follow-up bus request below would never appear. Clean evicts
+        # stay fire-and-forget.
+        if dir_req.coherence_cmd == CoherenceCmd.EVICT_DIRTY:
+            dut.bus_valid_i.value = 1
+            dut.bus_data_i.value = 0
+            dut.bus_dircmd_i.value = EVICT_DIRTY_ACK
+            await wait_for_signal(dut, dut.bus_ready_o)
+            dut.bus_valid_i.value = 0
+            dut.bus_dircmd_i.value = 0
+
         await wait_for_signal(dut, dut.cache_valid_o)
         dut.cache_ready_i.value = 1
 
@@ -485,8 +513,16 @@ async def one_flush(dut, addr: int):
             f"Flush evict data mismatch at addr {addr}: expected "
             f"{expected_evict_data:#010x}, got {int(dut.cache_data_o.value):#010x}"
         )
-        # evicts have no directory ack in this system -- nothing further
-        # to drive before the flush completes.
+        # Part 2: a dirty flush writeback is acked before the flush completes;
+        # the DUT parks in CPU_FLUSH_EVICT_ACK until it sees this. Clean flush
+        # stays fire-and-forget.
+        if expected_evict_cmd == CoherenceCmd.EVICT_DIRTY:
+            dut.bus_valid_i.value = 1
+            dut.bus_data_i.value = 0
+            dut.bus_dircmd_i.value = EVICT_DIRTY_ACK
+            await wait_for_signal(dut, dut.bus_ready_o)
+            dut.bus_valid_i.value = 0
+            dut.bus_dircmd_i.value = 0
 
     await wait_for_signal(dut, dut.flush_ready_o)
     dut.flush_valid_i.value = 0
@@ -546,9 +582,20 @@ async def outbound_bus_director(dut):
             continue
 
         cmd = int(dut.cache_cmd_o.value)
+
+        if cmd == int(CoherenceCmd.EVICT_DIRTY):
+            # Part 2: dirty writeback must be acked (DUT parks in CPU_EVICT_DIRTY_ACK).
+            await FallingEdge(dut.clk_i)
+            dut.bus_valid_i.value = 1
+            dut.bus_data_i.value = 0
+            dut.bus_dircmd_i.value = EVICT_DIRTY_ACK
+            await wait_for_signal(dut, dut.bus_ready_o)
+            dut.bus_valid_i.value = 0
+            continue
+
         if cmd not in ack_for_cmd:
-            # Evictions (CPU tag-miss or snoop flush) and snoop acks:
-            # no reply needed, cache_ready_i=1 above already drained it.
+            # Clean evictions and snoop acks: no reply needed,
+            # cache_ready_i=1 above already drained it.
             continue
 
         addr = int(dut.cache_addr_o.value)
