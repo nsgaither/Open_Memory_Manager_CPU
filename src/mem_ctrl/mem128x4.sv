@@ -22,11 +22,12 @@ module mem128x4
 );
 
   typedef enum logic [2:0] {
-    RESET_SRAMS = 3'b000,
-    RESET_DATA  = 3'b001,
-    IDLE        = 3'b010,
-    MEM_REQ     = 3'b011,
-    MEM_RESP    = 3'b100
+    RESET_SRAMS  = 3'b000,
+    RESET_DATA   = 3'b001,
+    IDLE         = 3'b010,
+    MEM_REQ      = 3'b011,
+    MEM_REQ_WAIT = 3'b101,
+    MEM_RESP     = 3'b100
   } state_t;
 
   state_t state_q, state_d;
@@ -123,6 +124,20 @@ module mem128x4
       end
 
       MEM_REQ: begin
+        sram_enable_n = 1'b0;
+        sram_gwen     = 1'b1;     // read only
+        state_d       = MEM_REQ_WAIT;
+      end
+
+      // FIX: addr_q (used for sram_addr below) only becomes valid on the
+      // same edge that enters MEM_REQ, which races the SRAM macro's own
+      // (blocking-assignment) address latch on that identical edge and
+      // loses -- the macro ends up sampling the *previous* transaction's
+      // address. Holding the read request one extra cycle before
+      // capturing data_read_from_sram gives that latch a full cycle to
+      // settle on the correct address (mirrors mem128x32's REQ_0/REQ_1
+      // split, which never hit this because it already defers capture).
+      MEM_REQ_WAIT: begin
         sram_enable_n = 1'b0;
         sram_gwen     = 1'b1;     // read only
         data_read_d   = data_read_from_sram;

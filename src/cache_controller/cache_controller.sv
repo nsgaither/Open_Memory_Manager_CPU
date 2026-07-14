@@ -759,6 +759,20 @@ module cache_controller
       end
 
       CPU_WRITE_RESP: begin
+        // FIX: keep driving the write request while it's in flight, same as
+        // CPU_READ_RESP/CPU_READ_MISS_UPDATE_LINE_RESP/SNP_UPDATE_LINE_RESP.
+        // cm_cpu_ready_o just means "accepted this cycle" (asserted the
+        // instant mem128x32's multi-cycle write pipeline starts), not
+        // "finished" -- without re-asserting cm_cpu_wdata_i here it drops
+        // to the default 0 one cycle into the write, corrupting every byte
+        // lane captured after the first.
+        cm_cpu_valid_i  = 1'b1;
+        cm_cpu_addr_i   = cpu_addr_q;
+        cm_cpu_wstrb_i  = cpu_wstrb_q;
+        cm_cpu_wdata_i  = data_to_write;
+        cm_cpu_wtag_i   = cpu_addr_tag;
+        cm_cpu_wstate_i = cpu_next_state_q;
+
         if (cm_cpu_valid_o) begin
           mem_ready_o    = 1'b1;
           cm_cpu_ready_i = 1'b1;

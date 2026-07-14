@@ -129,15 +129,17 @@ class CacheController:
 
         return await self.arbiter_port(req)
 
+    def _tag(self, addr: int) -> int:
+        bit_mask_to_isolate_tag: int = (1 << TAG_WIDTH) - 1
+        return (addr >> (OFFSET_WIDTH + INDEX_WIDTH)) & bit_mask_to_isolate_tag
+
     async def _handle_tag_mismatch(self, cache_line: CacheLine, request_addr: int) -> None:
 
         # skip if cacheline invalid
         if cache_line.state == MSIState.INVALID:
             return
 
-        # isolate tag
-        bit_mask_to_isolate_tag: int = (1 << TAG_WIDTH) - 1
-        request_addr_tag: int = (request_addr) >> (OFFSET_WIDTH + INDEX_WIDTH) & bit_mask_to_isolate_tag
+        request_addr_tag: int = self._tag(request_addr)
 
         # combine tag and index to make mem_addr
         shifted_tag: int = (cache_line.tag << TAG_WIDTH)
@@ -186,6 +188,7 @@ class CacheController:
             if dir_resp.mem_ready:
                 line.state = tr.next_state
                 line.data = dir_resp.mem_rdata
+                line.tag = self._tag(request.mem_addr)
 
         # we have data in cache so just pipe it straight through
         else:
@@ -239,6 +242,7 @@ class CacheController:
             dir_resp: axi_request = await self._send_dir_cmd(tr.issue_cmd, request.mem_addr)
             if dir_resp.mem_ready:
                 line.state = tr.next_state
+                line.tag = self._tag(request.mem_addr)
                 # 1. Fill the line with data from memory
                 if dir_resp.mem_rdata is not None:
                     line.data = dir_resp.mem_rdata
