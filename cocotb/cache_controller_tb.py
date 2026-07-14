@@ -19,6 +19,7 @@ logging.basicConfig(level=logging.INFO)
 from emulation.cache import CacheController
 from emulation.axi_request_types import axi_and_coherence_request, axi_request
 from emulation.msi import CoherenceCmd, SnoopEvent, on_snoop_event
+from emulation.config import MAIN_MEM_SIZE_IN_WORDS
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Constants
@@ -150,7 +151,7 @@ async def wait_for_signal(dut, sig):
 
 async def one_read(dut, addr: int):
 
-    if addr > 512:
+    if addr >= MAIN_MEM_SIZE_IN_WORDS:
         raise Exception("addr out of range")
 
     # ── CPU request ─────────────────────────────────────────────
@@ -249,7 +250,7 @@ async def one_read(dut, addr: int):
 
 async def one_write(dut, addr, data, wstrb):
 
-    if addr > 512:
+    if addr >= MAIN_MEM_SIZE_IN_WORDS:
         raise Exception("addr out of range")
 
 
@@ -361,7 +362,7 @@ async def one_snoop(dut, addr: int, dircmd_1h: int):
     later one_read/one_write calls on this address predict correctly.
     """
 
-    if addr > 512:
+    if addr >= MAIN_MEM_SIZE_IN_WORDS:
         raise Exception("addr out of range")
 
     line = cache._line(addr)
@@ -414,12 +415,12 @@ async def one_snoop(dut, addr: int, dircmd_1h: int):
 # Read/write all addrs
 # ─────────────────────────────────────────────────────────────────────────────
 async def test_read(dut):
-    for i in range(512):
+    for i in range(MAIN_MEM_SIZE_IN_WORDS):
       await one_read(dut, i)
 
 
 async def test_write(dut):
-    for i in range(512):
+    for i in range(MAIN_MEM_SIZE_IN_WORDS):
       await one_write(dut, i, i, 0xF)
 
 
@@ -493,11 +494,12 @@ def cache_controller_test():
         proj_path / "../src/cache_controller/on_snoop_event_state_machine.sv",
         proj_path / "../src/cache_controller/cache_controller.sv",
         proj_path / "../src/cache_controller/outbound_arbiter.sv",
-        proj_path / "../src/mem_ctrl/mem128x4.sv",
+        proj_path / "../src/mem_ctrl/mem128x6.sv",
         proj_path / "../src/mem_ctrl/mem128x32.sv",
         proj_path / "../src/mem_ctrl/cache_mem.sv",
         proj_path / "../src/mem_ctrl/two_port_cache_mem.sv",
         pdk_root / "gf180mcuD/libs.ref/gf180mcu_fd_ip_sram/verilog/gf180mcu_fd_ip_sram__sram512x8m8wm1.v",
+        pdk_root / "gf180mcuD/libs.ref/gf180mcu_fd_ip_sram/verilog/gf180mcu_fd_ip_sram__sram128x8m8wm1.v",
         pdk_root / "gf180mcuD/libs.ref/gf180mcu_fd_ip_sram/verilog/gf180mcu_fd_ip_sram__sram64x8m8wm1.v",
     ]
 

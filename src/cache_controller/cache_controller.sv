@@ -68,13 +68,14 @@ module cache_controller
   localparam logic [2:0] BUSRDX_ACK  = 3'b010;
   localparam logic [2:0] BUSUPGR_ACK = 3'b100;
 
-  // Address layout: addr[6:0]=index (7 bits), addr[8:7]=tag (2 bits)
-  // [8:7]; the params are kept for documentation. Reconcile this before
+  // Address layout: addr[6:0]=index (7 bits), addr[10:7]=tag (4 bits)
+  // -- main memory is 2048 words (11 bits), so tag = 11 - 7 = 4 bits;
+  // the params are kept for documentation. Reconcile this before
   // running real software on PicoRV32.
   localparam int OFFSET_W = 0;
   localparam int INDEX_W  = 7;
-  localparam int TAG_W    = 2;
-  localparam int TAG_HI   = OFFSET_W + INDEX_W + TAG_W - 1;  // 8
+  localparam int TAG_W    = 4;
+  localparam int TAG_HI   = OFFSET_W + INDEX_W + TAG_W - 1;  // 10
   localparam int TAG_LO   = OFFSET_W + INDEX_W;               // 7
 
 
@@ -120,7 +121,7 @@ module cache_controller
   logic [8:0]  cpu_issue_cmd_q,  cpu_issue_cmd_d;
   logic        cpu_cmd_valid_q,  cpu_cmd_valid_d;
   logic [31:0] cpu_line_data_q,  cpu_line_data_d;
-  logic [1:0]  cpu_line_tag_q,   cpu_line_tag_d;
+  logic [3:0]  cpu_line_tag_q,   cpu_line_tag_d;
   logic [1:0]  cpu_line_state_q, cpu_line_state_d;   
   logic        tag_match_cpu_q,  tag_match_cpu_d;
 
@@ -128,7 +129,7 @@ module cache_controller
   logic [31:0] snp_addr_q,       snp_addr_d;
   logic [2:0]  snp_dircmd_q,     snp_dircmd_d;
   logic [1:0]  snp_next_state_q, snp_next_state_d;
-  logic [1:0]  snp_tag_q,        snp_tag_d;
+  logic [3:0]  snp_tag_q,        snp_tag_d;
   logic        snp_flush_q,      snp_flush_d;
   logic [31:0] snp_flush_data_q, snp_flush_data_d;
   logic [1:0]  snp_line_state_q, snp_line_state_d;   
@@ -142,12 +143,12 @@ module cache_controller
   logic [31:0] cm_cpu_wdata_i;
   logic [3:0]  cm_cpu_wstrb_i;
   logic [1:0]  cm_cpu_wstate_i;
-  logic [1:0]  cm_cpu_wtag_i;
+  logic [3:0]  cm_cpu_wtag_i;
   logic        cm_cpu_ready_o;
   logic        cm_cpu_valid_o;
   logic [31:0] cm_cpu_rdata_o;
   logic [1:0]  cm_cpu_rstate_o;
-  logic [1:0]  cm_cpu_rtag_o;
+  logic [3:0]  cm_cpu_rtag_o;
 
   // on_snoop_request port
   logic        cm_snoop_valid_i;
@@ -156,12 +157,12 @@ module cache_controller
   logic [31:0] cm_snoop_wdata_i;
   logic [3:0]  cm_snoop_wstrb_i;
   logic [1:0]  cm_snoop_wstate_i;
-  logic [1:0]  cm_snoop_wtag_i;
+  logic [3:0]  cm_snoop_wtag_i;
   logic        cm_snoop_ready_o;
   logic        cm_snoop_valid_o;
   logic [31:0] cm_snoop_rdata_o;
   logic [1:0]  cm_snoop_rstate_o;
-  logic [1:0]  cm_snoop_rtag_o;
+  logic [3:0]  cm_snoop_rtag_o;
 
   two_port_cache_mem cache_mem
   (
@@ -283,7 +284,7 @@ module cache_controller
   // ============================================================
   logic [31:0] evict_addr;
   assign evict_addr = {
-      23'd0,
+      21'd0,
       cpu_line_tag_q,
       cpu_addr_q[6:0]
   };
@@ -303,7 +304,7 @@ module cache_controller
       cpu_issue_cmd_q  <= 9'b0;
       cpu_cmd_valid_q  <= 1'b0;
       cpu_line_data_q  <= 32'b0;
-      cpu_line_tag_q   <= 2'd0;
+      cpu_line_tag_q   <= 4'd0;
       cpu_line_state_q <= S_INVALID;    // NEW
       tag_match_cpu_q  <= 1'b1;
       snp_addr_q       <= 32'b0;
@@ -311,7 +312,7 @@ module cache_controller
       snp_next_state_q <= S_INVALID;
       snp_flush_q      <= 1'b0;
       snp_flush_data_q <= 32'b0;
-      snp_tag_q        <= 2'b0;
+      snp_tag_q        <= 4'b0;
       snp_line_state_q <= S_INVALID;    // NEW
     end else begin
       cpu_state_q      <= cpu_state_d;
@@ -340,8 +341,8 @@ module cache_controller
   // Snoop FSM
   // ============================================================
   // pre slice wires 
-  logic [1:0] snp_addr_tag;
-  assign snp_addr_tag = snp_addr_q[8:7];
+  logic [TAG_W-1:0] snp_addr_tag;
+  assign snp_addr_tag = snp_addr_q[TAG_HI:TAG_LO];
   always_comb begin
 
     // hold
@@ -497,8 +498,8 @@ module cache_controller
   //
    
   // pre slice wires 
-  logic [1:0] cpu_addr_tag;
-  assign cpu_addr_tag = cpu_addr_q[8:7];
+  logic [TAG_W-1:0] cpu_addr_tag;
+  assign cpu_addr_tag = cpu_addr_q[TAG_HI:TAG_LO];
   always_comb begin
 
     // hold

@@ -3,7 +3,7 @@ module two_port_cache_mem #(
   parameter DATA_W  = 32,
   parameter STRB_W  = DATA_W/8,
   parameter STATE_W = 2,
-  parameter TAG_W   = 2
+  parameter TAG_W   = 4
 )(
   input  logic clk_i,
   input  logic rst_ni,

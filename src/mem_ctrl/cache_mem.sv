@@ -18,11 +18,11 @@ module cache_mem
   input  wire [31:0]  wdata_i,  // data to write
   input  wire [3:0]   wstrb_i, 
   input  wire [1:0]   wstate_i, // state to write
-  input  wire [1:0]   wtag_i, // tag to write
+  input  wire [3:0]   wtag_i, // tag to write
 
   // output interface
   output wire [31:0]  rdata_o, // data read
-  output wire [1:0]   rtag_o, // tag read
+  output wire [3:0]   rtag_o, // tag read
   output wire [1:0]   rstate_o, // state read
   output wire         valid_o,
   input  wire         ready_i
@@ -34,12 +34,12 @@ module cache_mem
 );
 
   // combine tag_i and state_i for easier storage
-  logic [3:0] tag_plus_state_i;
-  assign tag_plus_state_i = {wtag_i, wstate_i}; 
+  logic [5:0] tag_plus_state_i;
+  assign tag_plus_state_i = {wtag_i, wstate_i};
 
-  // decombine tag_o and state_o from stored 
-  logic [3:0] tag_plus_state_o;
-  assign rtag_o = tag_plus_state_o[3:2];
+  // decombine tag_o and state_o from stored
+  logic [5:0] tag_plus_state_o;
+  assign rtag_o = tag_plus_state_o[5:2];
   assign rstate_o= tag_plus_state_o[1:0];
 
   // combine ready_o and valid_o of both modules
@@ -49,7 +49,7 @@ module cache_mem
   assign valid_o = (tag_mem_valid & data_mem_valid);
 
   
-  mem128x4 tag
+  mem128x6 tag
   (
     .clk_i(clk_i),
     .rst_ni(rst_ni),
