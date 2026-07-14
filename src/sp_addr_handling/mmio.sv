@@ -60,6 +60,21 @@ module mmio (
         end
     end
 
+    // Two-flop synchronizer for the asynchronous GPIO input pins before they
+    // are sampled into the CPU read datapath. These flops are deliberately
+    // kept off the scan chain so scan-mux insertion cannot weaken the
+    // metastability hardening; they reset to 0 to avoid X-propagation.
+    logic [7:0] gpio_pins_meta, gpio_pins_sync;
+    always_ff @(posedge clk_i) begin
+        if (!rst_ni) begin
+            gpio_pins_meta <= 8'h00;
+            gpio_pins_sync <= 8'h00;
+        end else begin
+            gpio_pins_meta <= gpio_pins_i;
+            gpio_pins_sync <= gpio_pins_meta;
+        end
+    end
+
     //read
     always_comb begin
         if(addr_i == 32'h8000_0018) begin
@@ -69,7 +84,7 @@ module mmio (
             if(csr_reg[pin_sel]) begin
                 rd_data_o = {31'h0, data_reg[pin_sel]};
             end else begin
-                rd_data_o = {31'h0, gpio_pins_i[pin_sel]};
+                rd_data_o = {31'h0, gpio_pins_sync[pin_sel]};
             end
         end else begin
             rd_data_o = 32'h0;

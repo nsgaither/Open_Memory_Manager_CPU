@@ -58,6 +58,7 @@ module chip_core #(
     wire memory_ready;
     wire cores_en;
     wire boot_done;
+    logic boot_done_meta, boot_done_sync;
     wire [DFT_CHAINS-1:0] dft_scan_in;
     wire [DFT_CHAINS-1:0] dft_scan_out;
     wire scan_after_mem_init;
@@ -66,10 +67,27 @@ module chip_core #(
     wire [1:0] interface_scan_out;
 
     assign memory_ready = (mem_init_count == MEM_INIT_COUNT_MAX);
-    assign cores_en = memory_ready && boot_done;
+    assign cores_en = memory_ready && boot_done_sync;
     assign boot_done = bidir_in[BOOT_DONE_ID];
     assign dft_scan_in = bidir_in[DEBUG_START_ID +: DFT_CHAINS];
     assign scan_after_mem_init = mem_init_count[MEM_INIT_COUNTER_WIDTH-1];
+
+    // Two-flop synchronizer for the asynchronous boot_done pad before it gates
+    // release of the CPU reset. rst_n is already reset-synchronized upstream in
+    // chip_top (reset_sync_ff -> rst_n_sync), so it is safe to use as the reset
+    // here. Excluded from scan (synchronizer hardening); resets to 0.
+    // (serial_i / req_i are left unsynchronized on purpose: the link clock is
+    // forwarded from the bottom chip, so those pins are already in the clk_i
+    // domain.)
+    always_ff @(posedge clk_i) begin
+        if (!rst_n) begin
+            boot_done_meta <= 1'b0;
+            boot_done_sync <= 1'b0;
+        end else begin
+            boot_done_meta <= boot_done;
+            boot_done_sync <= boot_done_meta;
+        end
+    end
 
     // Four independent chains use the lower half of the shared GPIO/DFT pad
     // range as serial inputs and the upper half as serial outputs.
