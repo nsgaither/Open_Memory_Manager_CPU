@@ -54,7 +54,6 @@ module mmio (
     endfunction
 
     // write
-    integer wl;
     always_ff @(posedge clk_i) begin
         if(!rst_ni) begin
             data_reg <= 8'h00;
@@ -67,7 +66,7 @@ module mmio (
                 csr_reg <= wr_data_i[7:0];
             //case where we write to a specific data pin (one per written byte lane)
             end else if(is_gpio_data) begin
-                for (wl = 0; wl < 4; wl = wl + 1) begin
+                for (int wl = 0; wl < 4; wl = wl + 1) begin
                     // only drive the lanes the CPU actually wrote, and only if
                     // csr says that pin is an output
                     if(wstrb_i[wl] && csr_reg[pin_index(wl[1:0])]) begin
@@ -99,13 +98,12 @@ module mmio (
     // four pins of the addressed word into its own byte lane; the CPU's byte
     // extraction then lands on the requested pin. Per pin: read-back the driven
     // value if it's an output, otherwise the synchronized input.
-    integer rl;
     always_comb begin
         rd_data_o = 32'h0;
         if(is_csr) begin
             rd_data_o = {24'h0, csr_reg};
         end else if(is_gpio_data) begin
-            for (rl = 0; rl < 4; rl = rl + 1) begin
+            for (int rl = 0; rl < 4; rl = rl + 1) begin
                 rd_data_o[8*rl] = csr_reg[pin_index(rl[1:0])] ?
                                       data_reg[pin_index(rl[1:0])] :
                                       gpio_pins_sync[pin_index(rl[1:0])];
