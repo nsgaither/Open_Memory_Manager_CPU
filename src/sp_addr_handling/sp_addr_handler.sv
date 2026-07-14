@@ -93,6 +93,7 @@ module sp_addr_handler (
         .scan_out_o(scan_after_mmio),
         .addr_i(mem_addr),
         .wr_data_i(mem_wdata),
+        .wstrb_i(mem_wstrb), //byte-lane select (native bus word-aligns mem_addr)
         .wr_en_i(mmio_wr_en), //only write if its a special addr
         .rd_data_o(mmio_rd_data),
         .gpio_pins_o(gpio_pins_o),
