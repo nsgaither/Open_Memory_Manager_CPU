@@ -120,7 +120,7 @@ MACROS:
       # this grows the placed footprint to x=1418.88, still inside the 0p5-wide
       # core (x_max=1494, ~75um margin).
       i_chip_core.u_cache_controller.cache_mem.u_cache_mem.tag.sram0:
-        location: [1150, 600]
+        location: [1150, 1000]
         orientation: E
 
 # This is an alternative method compared to
