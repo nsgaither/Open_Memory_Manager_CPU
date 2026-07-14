@@ -434,7 +434,7 @@ def chip_top_runner():
             proj_path / "../src/mem_ctrl/cache_mem.sv",
             proj_path / "../src/mem_ctrl/two_port_cache_mem.sv",
             proj_path / "../src/mem_ctrl/mem128x32.sv",
-            proj_path / "../src/mem_ctrl/mem128x4.sv",
+            proj_path / "../src/mem_ctrl/mem128x6.sv",
         ]
 
     sources += [
@@ -450,6 +450,7 @@ def chip_top_runner():
     if sdf:
         sources += [
             proj_path / "models/gf180_sram512x8_model.sv",
+            proj_path / "models/gf180_sram128x8_model.sv",
             proj_path / "models/gf180_sram64x8_model.sv",
         ]
     else:
@@ -457,6 +458,9 @@ def chip_top_runner():
             pdk_root
             / pdk
             / "libs.ref/gf180mcu_fd_ip_sram/verilog/gf180mcu_fd_ip_sram__sram512x8m8wm1.v",
+            pdk_root
+            / pdk
+            / "libs.ref/gf180mcu_fd_ip_sram/verilog/gf180mcu_fd_ip_sram__sram128x8m8wm1.v",
             pdk_root
             / pdk
             / "libs.ref/gf180mcu_fd_ip_sram/verilog/gf180mcu_fd_ip_sram__sram64x8m8wm1.v",

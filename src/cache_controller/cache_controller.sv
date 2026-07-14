@@ -48,9 +48,6 @@ module cache_controller
 );
  
   // Local parameters
-  // TODO: Replace with real flush handling.
-  assign flush_ready_o = 1'b1;
-
   localparam logic [1:0] S_INVALID  = 2'b00;
   localparam logic [1:0] S_SHARED   = 2'b01;
   localparam logic [1:0] S_MODIFIED = 2'b10;
@@ -73,13 +70,14 @@ module cache_controller
   localparam logic [2:0] BUSRDX_ACK  = 3'b010;
   localparam logic [2:0] BUSUPGR_ACK = 3'b100;
 
-  // Address layout: addr[6:0]=index (7 bits), addr[8:7]=tag (2 bits)
-  // [8:7]; the params are kept for documentation. Reconcile this before
+  // Address layout: addr[6:0]=index (7 bits), addr[10:7]=tag (4 bits)
+  // -- main memory is 2048 words (11 bits), so tag = 11 - 7 = 4 bits;
+  // the params are kept for documentation. Reconcile this before
   // running real software on PicoRV32.
   localparam int OFFSET_W = 0;
   localparam int INDEX_W  = 7;
-  localparam int TAG_W    = 2;
-  localparam int TAG_HI   = OFFSET_W + INDEX_W + TAG_W - 1;  // 8
+  localparam int TAG_W    = 4;
+  localparam int TAG_HI   = OFFSET_W + INDEX_W + TAG_W - 1;  // 10
   localparam int TAG_LO   = OFFSET_W + INDEX_W;               // 7
 
 
@@ -88,28 +86,38 @@ module cache_controller
     SNP_FETCH_LINE_REQ   = 3'd1,
     SNP_FETCH_LINE_RESP  = 3'd2,
     SNP_ON_SNOOP_EVENT   = 3'd3,
-    SNP_FLUSH_HANDLER    = 3'd4,
     SNP_UPDATE_LINE_REQ  = 3'd5,
     SNP_UPDATE_LINE_RESP = 3'd6,
     SNP_DONE             = 3'd7
   } snp_state_t;
 
-  typedef enum logic [3:0] {
-      CPU_IDLE                       = 4'd1,
-      CPU_FETCH_LINE_REQ             = 4'd2,
-      CPU_FETCH_LINE_RESP            = 4'd3,
-      CPU_TAG_MISS                   = 4'd4,
-      CPU_TAG_MATCH                  = 4'd5,
-      CPU_READ_MISS                  = 4'd6,
-      CPU_READ_MISS_ACK              = 4'd7,
-      CPU_READ_MISS_UPDATE_LINE_REQ  = 4'd8,
-      CPU_READ_MISS_UPDATE_LINE_RESP = 4'd9,
-      CPU_READ_REQ                   = 4'd10,
-      CPU_READ_RESP                  = 4'd11,
-      CPU_WRITE_MISS                 = 4'd12,
-      CPU_WRITE_MISS_ACK             = 4'd13,
-      CPU_WRITE_REQ                  = 4'd14,
-      CPU_WRITE_RESP                 = 4'd15
+  typedef enum logic [4:0] {
+      CPU_IDLE                       = 5'd1,
+      CPU_FETCH_LINE_REQ             = 5'd2,
+      CPU_FETCH_LINE_RESP            = 5'd3,
+      CPU_TAG_MISS                   = 5'd4,
+      CPU_TAG_MATCH                  = 5'd5,
+      CPU_READ_MISS                  = 5'd6,
+      CPU_READ_MISS_ACK              = 5'd7,
+      CPU_READ_MISS_UPDATE_LINE_REQ  = 5'd8,
+      CPU_READ_MISS_UPDATE_LINE_RESP = 5'd9,
+      CPU_READ_REQ                   = 5'd10,
+      CPU_READ_RESP                  = 5'd11,
+      CPU_WRITE_MISS                 = 5'd12,
+      CPU_WRITE_MISS_ACK             = 5'd13,
+      CPU_WRITE_REQ                  = 5'd14,
+      CPU_WRITE_RESP                 = 5'd15,
+      // CPU-initiated flush: look up the line at flush_addr_i's index,
+      // evict it (write back if dirty) if it's present and matches the
+      // tag, then invalidate. Rides the CPU's existing cache_mem/outbound
+      // ports -- flush_valid_i and mem_valid_i are mutually exclusive by
+      // construction (sp_addr_handler deasserts pass_mem_valid while a
+      // flush is in flight), so there's no contention to arbitrate here.
+      CPU_FLUSH_LOOKUP_REQ           = 5'd16,
+      CPU_FLUSH_LOOKUP_RESP          = 5'd17,
+      CPU_FLUSH_EVICT                = 5'd18,
+      CPU_FLUSH_INVALIDATE_REQ       = 5'd19,
+      CPU_FLUSH_INVALIDATE_RESP      = 5'd20
   } cpu_state_t;
 
 
@@ -125,7 +133,7 @@ module cache_controller
   logic [8:0]  cpu_issue_cmd_q,  cpu_issue_cmd_d;
   logic        cpu_cmd_valid_q,  cpu_cmd_valid_d;
   logic [31:0] cpu_line_data_q,  cpu_line_data_d;
-  logic [1:0]  cpu_line_tag_q,   cpu_line_tag_d;
+  logic [3:0]  cpu_line_tag_q,   cpu_line_tag_d;
   logic [1:0]  cpu_line_state_q, cpu_line_state_d;   
   logic        tag_match_cpu_q,  tag_match_cpu_d;
 
@@ -133,7 +141,7 @@ module cache_controller
   logic [31:0] snp_addr_q,       snp_addr_d;
   logic [2:0]  snp_dircmd_q,     snp_dircmd_d;
   logic [1:0]  snp_next_state_q, snp_next_state_d;
-  logic [1:0]  snp_tag_q,        snp_tag_d;
+  logic [3:0]  snp_tag_q,        snp_tag_d;
   logic        snp_flush_q,      snp_flush_d;
   logic [31:0] snp_flush_data_q, snp_flush_data_d;
   logic [1:0]  snp_line_state_q, snp_line_state_d;   
@@ -159,12 +167,12 @@ module cache_controller
   logic [31:0] cm_cpu_wdata_i;
   logic [3:0]  cm_cpu_wstrb_i;
   logic [1:0]  cm_cpu_wstate_i;
-  logic [1:0]  cm_cpu_wtag_i;
+  logic [3:0]  cm_cpu_wtag_i;
   logic        cm_cpu_ready_o;
   logic        cm_cpu_valid_o;
   logic [31:0] cm_cpu_rdata_o;
   logic [1:0]  cm_cpu_rstate_o;
-  logic [1:0]  cm_cpu_rtag_o;
+  logic [3:0]  cm_cpu_rtag_o;
 
   // on_snoop_request port
   logic        cm_snoop_valid_i;
@@ -173,12 +181,12 @@ module cache_controller
   logic [31:0] cm_snoop_wdata_i;
   logic [3:0]  cm_snoop_wstrb_i;
   logic [1:0]  cm_snoop_wstate_i;
-  logic [1:0]  cm_snoop_wtag_i;
+  logic [3:0]  cm_snoop_wtag_i;
   logic        cm_snoop_ready_o;
   logic        cm_snoop_valid_o;
   logic [31:0] cm_snoop_rdata_o;
   logic [1:0]  cm_snoop_rstate_o;
-  logic [1:0]  cm_snoop_rtag_o;
+  logic [3:0]  cm_snoop_rtag_o;
 
   two_port_cache_mem cache_mem
   (
@@ -306,7 +314,7 @@ module cache_controller
   // ============================================================
   logic [31:0] evict_addr;
   assign evict_addr = {
-      23'd0,
+      21'd0,
       cpu_line_tag_q,
       cpu_addr_q[6:0]
   };
@@ -326,7 +334,7 @@ module cache_controller
       cpu_issue_cmd_q  <= 9'b0;
       cpu_cmd_valid_q  <= 1'b0;
       cpu_line_data_q  <= 32'b0;
-      cpu_line_tag_q   <= 2'd0;
+      cpu_line_tag_q   <= 4'd0;
       cpu_line_state_q <= S_INVALID;    // NEW
       tag_match_cpu_q  <= 1'b1;
       snp_addr_q       <= 32'b0;
@@ -334,7 +342,7 @@ module cache_controller
       snp_next_state_q <= S_INVALID;
       snp_flush_q      <= 1'b0;
       snp_flush_data_q <= 32'b0;
-      snp_tag_q        <= 2'b0;
+      snp_tag_q        <= 4'b0;
       snp_line_state_q <= S_INVALID;    // NEW
     end else if (debug_mode_i) begin
       {
@@ -371,8 +379,8 @@ module cache_controller
   // Snoop FSM
   // ============================================================
   // pre slice wires 
-  logic [1:0] snp_addr_tag;
-  assign snp_addr_tag = snp_addr_q[8:7];
+  logic [TAG_W-1:0] snp_addr_tag;
+  assign snp_addr_tag = snp_addr_q[TAG_HI:TAG_LO];
   always_comb begin
 
     // hold
@@ -432,7 +440,12 @@ module cache_controller
         cm_snoop_wstrb_i = '0; // read
         if (cm_snoop_valid_o) begin
           if (cm_snoop_rtag_o != snp_addr_tag) begin
-            // ghost snoop: tag doesn't match, nothing to do, just ack
+            // ghost snoop: tag doesn't match, nothing to do, just ack.
+            // Skips SNP_ON_SNOOP_EVENT (the only place snp_flush_d is
+            // normally set), so clear it here -- otherwise a stale '1'
+            // left over from a prior real flush would leak flush data
+            // onto this ack in SNP_DONE.
+            snp_flush_d = 1'b0;
             snp_state_d = SNP_DONE;
           end
           else begin
@@ -448,24 +461,7 @@ module cache_controller
       SNP_ON_SNOOP_EVENT: begin
         snp_next_state_d = on_snoop_event_state_o;
         snp_flush_d      = on_snnop_event_flush_o;
-
-        if (on_snnop_event_flush_o) begin
-          snp_state_d = SNP_FLUSH_HANDLER;
-        end else begin
-          snp_state_d = SNP_UPDATE_LINE_REQ;
-        end
-      end
-
-      SNP_FLUSH_HANDLER: begin
-        outbound_snoop_cache_valid_i = 1'b1;
-        outbound_snoop_cache_addr_i  = snp_addr_q;
-        outbound_snoop_cache_data_i  = snp_flush_data_q;
-        outbound_snoop_cache_cmd_i   = EvictDirty_1h;
-
-        if (outbound_snoop_cache_ready_o) begin
-          // evicts have no ack in this system
-          snp_state_d = SNP_UPDATE_LINE_REQ;
-        end
+        snp_state_d      = SNP_UPDATE_LINE_REQ;
       end
 
       SNP_UPDATE_LINE_REQ: begin
@@ -498,7 +494,11 @@ module cache_controller
       SNP_DONE: begin
         outbound_snoop_cache_valid_i = 1'b1;
         outbound_snoop_cache_addr_i  = snp_addr_q;
-        outbound_snoop_cache_data_i  = '0;
+        // flush data (if any) rides on the ack itself -- no separate
+        // evict transaction; matches the SnoopXXX_Ack wire encoding and
+        // the directory's _send_snoop, which reads the flushed data
+        // straight out of the snoop response.
+        outbound_snoop_cache_data_i  = snp_flush_q ? snp_flush_data_q : 32'd0;
         if (snp_dircmd_q == 3'b001) begin
           outbound_snoop_cache_cmd_i = SnoopBusRD_Ack_1h;
         end
@@ -528,8 +528,8 @@ module cache_controller
   //
    
   // pre slice wires 
-  logic [1:0] cpu_addr_tag;
-  assign cpu_addr_tag = cpu_addr_q[8:7];
+  logic [TAG_W-1:0] cpu_addr_tag;
+  assign cpu_addr_tag = cpu_addr_q[TAG_HI:TAG_LO];
   always_comb begin
 
     // hold
@@ -565,15 +565,20 @@ module cache_controller
     // cpu-interface (default off)
     mem_ready_o = 1'b0;
     mem_rdata_o = '0;
+    flush_ready_o = 1'b0;
 
     case (cpu_state_q)
 
       CPU_IDLE: begin
         if (mem_valid_i) begin
-          cpu_addr_d  = mem_addr_i; 
+          cpu_addr_d  = mem_addr_i;
           cpu_wdata_d = mem_wdata_i;
           cpu_wstrb_d = mem_wstrb_i;
           cpu_state_d = CPU_FETCH_LINE_REQ;
+        end
+        else if (flush_valid_i) begin
+          cpu_addr_d  = flush_addr_i;
+          cpu_state_d = CPU_FLUSH_LOOKUP_REQ;
         end
       end
 
@@ -790,12 +795,111 @@ module cache_controller
       end
 
       CPU_WRITE_RESP: begin
+        // FIX: keep driving the write request while it's in flight, same as
+        // CPU_READ_RESP/CPU_READ_MISS_UPDATE_LINE_RESP/SNP_UPDATE_LINE_RESP.
+        // cm_cpu_ready_o just means "accepted this cycle" (asserted the
+        // instant mem128x32's multi-cycle write pipeline starts), not
+        // "finished" -- without re-asserting cm_cpu_wdata_i here it drops
+        // to the default 0 one cycle into the write, corrupting every byte
+        // lane captured after the first.
+        cm_cpu_valid_i  = 1'b1;
+        cm_cpu_addr_i   = cpu_addr_q;
+        cm_cpu_wstrb_i  = cpu_wstrb_q;
+        cm_cpu_wdata_i  = data_to_write;
+        cm_cpu_wtag_i   = cpu_addr_tag;
+        cm_cpu_wstate_i = cpu_next_state_q;
+
         if (cm_cpu_valid_o) begin
           mem_ready_o    = 1'b1;
           cm_cpu_ready_i = 1'b1;
 
           tag_match_cpu_d = 1'b1;
           cpu_state_d     = CPU_IDLE;
+        end
+      end
+
+      CPU_FLUSH_LOOKUP_REQ: begin
+        cm_cpu_valid_i = 1'b1;
+        cm_cpu_addr_i  = cpu_addr_q;
+        cm_cpu_wstrb_i = '0; // read
+        if (cm_cpu_ready_o) begin
+          cpu_state_d = CPU_FLUSH_LOOKUP_RESP;
+        end
+      end
+
+      CPU_FLUSH_LOOKUP_RESP: begin
+        cm_cpu_valid_i = 1'b1;
+        cm_cpu_addr_i  = cpu_addr_q;
+        cm_cpu_wstrb_i = '0; // read
+        if (cm_cpu_valid_o) begin
+          cpu_line_data_d  = cm_cpu_rdata_o;
+          cpu_line_tag_d   = cm_cpu_rtag_o;
+          cpu_line_state_d = cm_cpu_rstate_o;
+          cm_cpu_ready_i   = 1'b1;
+
+          if (cm_cpu_rtag_o == cpu_addr_tag && cm_cpu_rstate_o != S_INVALID) begin
+            // we actually hold this line -> evict (writeback if dirty)
+            // before invalidating it.
+            cpu_state_d = CPU_FLUSH_EVICT;
+          end
+          else begin
+            // tag mismatch or already invalid -- nothing to flush.
+            flush_ready_o = 1'b1;
+            cpu_state_d   = CPU_IDLE;
+          end
+        end
+      end
+
+      CPU_FLUSH_EVICT: begin
+        // same evict sequence as CPU_TAG_MISS, using the just-latched line.
+        outbound_cpu_cache_valid_i = 1'b1;
+        outbound_cpu_cache_addr_i  = evict_addr;
+        outbound_cpu_cache_data_i  = cpu_line_data_q;
+        if (cpu_line_state_q == S_SHARED) begin
+          outbound_cpu_cache_cmd_i = EvictClean_1h;
+        end
+        else if (cpu_line_state_q == S_MODIFIED) begin
+          outbound_cpu_cache_cmd_i = EvictDirty_1h;
+        end
+        else begin
+          outbound_cpu_cache_cmd_i = NULLcc1h;
+        end
+
+        if (outbound_cpu_cache_ready_o) begin
+          // evicts have no ack in this system
+          cpu_state_d = CPU_FLUSH_INVALIDATE_REQ;
+        end
+      end
+
+      CPU_FLUSH_INVALIDATE_REQ: begin
+        // cache_mem only supports writing tag+state together with data,
+        // so rewrite the same data back alongside state=INVALID (data
+        // content is don't-care once invalid, same as every other
+        // invalidation path in this design).
+        cm_cpu_valid_i  = 1'b1;
+        cm_cpu_addr_i   = cpu_addr_q;
+        cm_cpu_wstrb_i  = 4'b1111;
+        cm_cpu_wdata_i  = cpu_line_data_q;
+        cm_cpu_wtag_i   = cpu_line_tag_q;
+        cm_cpu_wstate_i = S_INVALID;
+
+        if (cm_cpu_ready_o) begin
+          cpu_state_d = CPU_FLUSH_INVALIDATE_RESP;
+        end
+      end
+
+      CPU_FLUSH_INVALIDATE_RESP: begin
+        cm_cpu_valid_i  = 1'b1;
+        cm_cpu_addr_i   = cpu_addr_q;
+        cm_cpu_wstrb_i  = 4'b1111;
+        cm_cpu_wdata_i  = cpu_line_data_q;
+        cm_cpu_wtag_i   = cpu_line_tag_q;
+        cm_cpu_wstate_i = S_INVALID;
+
+        if (cm_cpu_valid_o) begin
+          cm_cpu_ready_i = 1'b1;
+          flush_ready_o  = 1'b1;
+          cpu_state_d    = CPU_IDLE;
         end
       end
 

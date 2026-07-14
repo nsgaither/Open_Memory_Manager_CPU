@@ -129,18 +129,20 @@ class CacheController:
 
         return await self.arbiter_port(req)
 
+    def _tag(self, addr: int) -> int:
+        bit_mask_to_isolate_tag: int = (1 << TAG_WIDTH) - 1
+        return (addr >> (OFFSET_WIDTH + INDEX_WIDTH)) & bit_mask_to_isolate_tag
+
     async def _handle_tag_mismatch(self, cache_line: CacheLine, request_addr: int) -> None:
 
         # skip if cacheline invalid
         if cache_line.state == MSIState.INVALID:
             return
 
-        # isolate tag
-        bit_mask_to_isolate_tag: int = (1 << TAG_WIDTH) - 1
-        request_addr_tag: int = (request_addr) >> (OFFSET_WIDTH + INDEX_WIDTH) & bit_mask_to_isolate_tag
+        request_addr_tag: int = self._tag(request_addr)
 
         # combine tag and index to make mem_addr
-        shifted_tag: int = (cache_line.tag << TAG_WIDTH)
+        shifted_tag: int = (cache_line.tag << INDEX_WIDTH)
         tag_addr: int = shifted_tag | cache_line.index
 
         if cache_line.tag != request_addr_tag:
@@ -186,6 +188,7 @@ class CacheController:
             if dir_resp.mem_ready:
                 line.state = tr.next_state
                 line.data = dir_resp.mem_rdata
+                line.tag = self._tag(request.mem_addr)
 
         # we have data in cache so just pipe it straight through
         else:
@@ -239,6 +242,7 @@ class CacheController:
             dir_resp: axi_request = await self._send_dir_cmd(tr.issue_cmd, request.mem_addr)
             if dir_resp.mem_ready:
                 line.state = tr.next_state
+                line.tag = self._tag(request.mem_addr)
                 # 1. Fill the line with data from memory
                 if dir_resp.mem_rdata is not None:
                     line.data = dir_resp.mem_rdata
@@ -291,6 +295,17 @@ class CacheController:
             event = SnoopEvent.BUS_UPGR
         else:
             raise ValueError(f"unknown snoop cmd {cmd}")
+
+        # Ghost snoop: this index is aliased to a *different* address (its
+        # tag doesn't match the one being snooped), so this cache has
+        # nothing to invalidate or flush for the requested line. Mirrors
+        # the RTL's tag check in SNP_FETCH_LINE_RESP -- without it, a
+        # snoop for one address could wrongly flush/invalidate whatever
+        # unrelated line happens to occupy the same index.
+        if line.tag != self._tag(request.mem_addr):
+            request.mem_wdata_or_msi_payload = 0
+            request.mem_ready = True
+            return request
 
         # Ask state machine: how do we respond to this snoop?
         tr: TransitionResult = on_snoop_event(line.state, event)
