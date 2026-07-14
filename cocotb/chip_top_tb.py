@@ -39,7 +39,7 @@ SCAN_OUT_PADS = tuple(
     range(DEBUG_START_PAD + DFT_CHAINS, DEBUG_START_PAD + DFT_PINS)
 )
 NUM_SERIAL_PADS = 9
-SCAN_CHAIN_LENGTHS = (139, 198, 214, 119)
+SCAN_CHAIN_LENGTHS = (139, 198, 217, 119)
 
 
 def _pad_drive(width, driven_bits=None):
