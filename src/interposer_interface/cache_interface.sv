@@ -117,7 +117,7 @@ module cache_interface #(
             EvictDirty_1h       : t_packet = {LARGE,   cache_data_i, cache_addr_i, EvictDirty};
             SnoopBusRD_Ack_1h   : t_packet = {MEDIUM,  32'b0,        cache_data_i, SnoopBusRD};
             SnoopBusRDX_Ack_1h  : t_packet = {MEDIUM,  32'b0,        cache_data_i, SnoopBusRDX};
-            SnoopBusUPGR_Ack_1h : t_packet = {MEDIUM,  32'b0,        cache_data_i, SnoopBusUPGR};
+            SnoopBusUPGR_Ack_1h : t_packet = {CMDONLY, 32'b0,        32'b0,        SnoopBusUPGR};
             ResetDone_1h        : t_packet = {CMDONLY, 32'b0,        32'b0,        ResetDone};
             default             : t_packet = '0;
         endcase
