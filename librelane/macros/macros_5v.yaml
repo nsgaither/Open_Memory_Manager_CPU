@@ -98,22 +98,27 @@ MACROS:
         location: [600, 600]
         orientation: S
 
-  gf180mcu_fd_ip_sram__sram64x8m8wm1:
+  # Cache tag+state store. mem128x6 (4-bit tag + 2-bit state, one byte-row
+  # per line) rides the 128x8 macro, replacing the old nibble-packed 64x8.
+  gf180mcu_fd_ip_sram__sram128x8m8wm1:
     gds:
-      - pdk_dir::libs.ref/gf180mcu_fd_ip_sram/gds/gf180mcu_fd_ip_sram__sram64x8m8wm1.gds
+      - pdk_dir::libs.ref/gf180mcu_fd_ip_sram/gds/gf180mcu_fd_ip_sram__sram128x8m8wm1.gds
     lef:
-      - pdk_dir::libs.ref/gf180mcu_fd_ip_sram/lef/gf180mcu_fd_ip_sram__sram64x8m8wm1.lef
+      - pdk_dir::libs.ref/gf180mcu_fd_ip_sram/lef/gf180mcu_fd_ip_sram__sram128x8m8wm1.lef
     vh:
-      - dir::../src/sram_models/gf180mcu_fd_ip_sram__sram64x8m8wm1__blackbox_pp.v
+      - pdk_dir::libs.ref/gf180mcu_fd_ip_sram/verilog/gf180mcu_fd_ip_sram__sram128x8m8wm1__blackbox_pp.v
     lib:
       "*_tt_025C_5v00":
-        - pdk_dir::libs.ref/gf180mcu_fd_ip_sram/lib/gf180mcu_fd_ip_sram__sram64x8m8wm1__tt_025C_5v00.lib
+        - pdk_dir::libs.ref/gf180mcu_fd_ip_sram/lib/gf180mcu_fd_ip_sram__sram128x8m8wm1__tt_025C_5v00.lib
       "*_ff_n40C_5v50":
-        - pdk_dir::libs.ref/gf180mcu_fd_ip_sram/lib/gf180mcu_fd_ip_sram__sram64x8m8wm1__ff_n40C_5v50.lib
+        - pdk_dir::libs.ref/gf180mcu_fd_ip_sram/lib/gf180mcu_fd_ip_sram__sram128x8m8wm1__ff_n40C_5v50.lib
       "*_ss_125C_4v50":
-        - pdk_dir::libs.ref/gf180mcu_fd_ip_sram/lib/gf180mcu_fd_ip_sram__sram64x8m8wm1__ss_125C_4v50.lib
+        - pdk_dir::libs.ref/gf180mcu_fd_ip_sram/lib/gf180mcu_fd_ip_sram__sram128x8m8wm1__ss_125C_4v50.lib
     instances:
       # Make sure to specify the SRAMs in pdn_cfg.tcl
+      # 128x8 is 268.88um tall vs the old 64x8's 232.88um; under orientation E
+      # this grows the placed footprint to x=1418.88, still inside the 0p5-wide
+      # core (x_max=1494, ~75um margin).
       i_chip_core.u_cache_controller.cache_mem.u_cache_mem.tag.sram0:
         location: [1150, 600]
         orientation: E

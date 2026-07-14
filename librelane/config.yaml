@@ -35,7 +35,7 @@ VERILOG_FILES:
 - dir::../ip/picorv32/picorv32.v
 - dir::../src/mem_ctrl/cache_mem.sv
 - dir::../src/mem_ctrl/mem128x32.sv
-- dir::../src/mem_ctrl/mem128x4.sv
+- dir::../src/mem_ctrl/mem128x6.sv
 - dir::../src/cache_controller/cache_controller.sv
 - dir::../src/cache_controller/outbound_arbiter.sv
 - dir::../src/cache_controller/on_snoop_event_state_machine.sv
