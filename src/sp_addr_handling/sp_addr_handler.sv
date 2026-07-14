@@ -88,7 +88,10 @@ module sp_addr_handler (
             flush_addr_r <= '0;
             flush_valid_r <= '0;
         end else if (is_flush & mem_valid) begin
-            flush_addr_r <= mem_addr;
+            // mem_addr is always the fixed 0x8000_0020 trigger address --
+            // the line to flush is the value the CPU stores there, same
+            // convention as every other MMIO write in this module.
+            flush_addr_r <= mem_wdata;
             flush_valid_r <= '1;
         end else if (flush_ready_i) begin
                 flush_valid_r <= '0;
