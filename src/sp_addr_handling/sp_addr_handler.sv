@@ -111,7 +111,9 @@ module sp_addr_handler (
             // mem_addr is always the fixed 0x8000_0020 trigger address --
             // the line to flush is the value the CPU stores there, same
             // convention as every other MMIO write in this module.
-            flush_addr_r <= mem_wdata;
+            // Firmware supplies a byte address; shift to a word index to match
+            // the now word-indexed cache (same translation as pass_mem_addr).
+            flush_addr_r <= {2'b00, mem_wdata[31:2]};
             flush_valid_r <= '1;
         end else if (flush_ready_i) begin
                 flush_valid_r <= '0;
@@ -123,8 +125,15 @@ module sp_addr_handler (
     assign flush_valid_o = flush_valid_r;
     assign flush_addr_o = flush_addr_r;
 
-    // passthrough but only validate if not sp addr
-    assign pass_mem_addr = mem_addr;
+    // passthrough but only validate if not sp addr.
+    // PicoRV32 drives word-aligned byte addresses (addr[1:0]==0, the accessed
+    // byte lane is carried in mem_wstrb), but the cache / coherence / shared-
+    // memory path is word-indexed. Translate byte address -> word index here,
+    // the single CPU-side choke point, so the special-address decode above
+    // stays on the raw byte address while everything downstream sees a proper
+    // word index. Must be paired with the boot loader writing image word i at
+    // word index i (boot_fsm sram_addr stride of 1).
+    assign pass_mem_addr = {2'b00, mem_addr[31:2]};
     assign pass_mem_wdata = mem_wdata;
     assign pass_mem_wstrb = mem_wstrb;
     assign pass_mem_valid = ~is_special_addr & mem_valid;
