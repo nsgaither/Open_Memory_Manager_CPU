@@ -26,150 +26,113 @@ module mem512x32
   `endif
 );
 
-  typedef enum logic [3:0] {
-    RESET_SRAMS = 4'd0,
-    RESET_DATA  = 4'd1,
-    IDLE        = 4'd2,
-    MEM_REQ_0   = 4'd3,
-    MEM_REQ_1   = 4'd4,
-    MEM_REQ_2   = 4'd5,
-    MEM_REQ_3   = 4'd6,
-    MEM_REQ_4   = 4'd7,
-    MEM_RESP    = 4'd8
+  // 4x BANKED data store: 512 words x 32b across TWO 3.3V ocd 1024x8 macros,
+  // byte-interleaved for a parallel 2-access read instead of the old
+  // byte-serial 4-access walk.
+  //   macro0 (sram0) holds bytes {0,1} of every word; macro1 (sram1) holds {2,3}.
+  //   For word W, half h in {0,1}: row {W, h}. h=0 -> {b0,b2}, h=1 -> {b1,b3}.
+  // Both macros share the address bus and are accessed every cycle, so a word
+  // needs only two SRAM accesses (half0 then half1) rather than four. Capacity
+  // is unchanged: each macro stores 2 bytes x 512 words = 1024 rows (full
+  // 1024x8), and the reset clear walks 1024 rows (both macros in parallel),
+  // half the old 2048. mem_addr_i[8:0] is the word index.
+  typedef enum logic [2:0] {
+    RESET_SRAMS = 3'd0,
+    RESET_DATA  = 3'd1,
+    IDLE        = 3'd2,
+    MEM_REQ_0   = 3'd3,   // present/write half 0 (bytes 0 and 2)
+    MEM_REQ_1   = 3'd4,   // present/write half 1 (bytes 1 and 3); capture half 0
+    MEM_REQ_2   = 3'd5,   // capture half 1
+    MEM_RESP    = 3'd6
   } state_t;
 
   state_t state_q, state_d;
 
-  logic [10:0] reset_addr_q, reset_addr_d;
-  logic [10:0] addr_q, addr_d;
-  logic [31:0] wdata_q, wdata_d;
-  logic [3:0]  mode_q, mode_d;
-  logic [31:0] data_read_q, data_read_d;
-  logic [7:0]  data_to_write_q, data_to_write_d;
+  logic [9:0]  reset_addr_q, reset_addr_d;   // 0..1023 clear walk
+  logic [8:0]  word_addr_q,  word_addr_d;    // latched word index (512 words)
+  logic [31:0] wdata_q,      wdata_d;
+  logic [3:0]  mode_q,       mode_d;         // latched wstrb (0 => read)
+  logic [31:0] rdata_q,      rdata_d;
 
-  logic [101:0] scan_state;
+  wire is_write = |mode_q;
+
+  // Scan chain: functional pass-through of the state registers. Length is
+  // intentionally not tuned here (datapath still in flux).
+  logic [89:0] scan_state;
   assign scan_state = {
-    data_to_write_q, data_read_q, mode_q, wdata_q,
-    addr_q, reset_addr_q, state_q
+    rdata_q, wdata_q, word_addr_q, reset_addr_q, mode_q, state_q
   };
-  assign scan_out_o = scan_state[101];
+  assign scan_out_o = scan_state[89];
 
-  logic        sram_enable_n;
-  logic [10:0] sram_addr;
-  logic [7:0]  data_read_from_sram;
-  logic        sram_gwen;
-
-  // 4x data store (512 words x 32b = 2048 bytes) spans two 3.3V ocd 1024x8
-  // macros. A 32-bit word occupies 4 consecutive byte rows at base = word*4,
-  // so the macro-select bit (byte-address bit[10] = word_addr[8]) is invariant
-  // across a word's 4-byte walk. That lets one combinational select drive both
-  // the per-macro write/enable gating and the read mux -- no extra pipeline
-  // register, so the DFT scan chain gains only the widened address counters.
-  logic       macro_sel;
+  // Per-macro read data
   logic [7:0] q0, q1;
-  assign macro_sel = sram_addr[10];
-  assign data_read_from_sram = macro_sel ? q1 : q0;
-
-  wire [8:0] mem_word_addr = mem_addr_i[8:0];
-
-  wire [7:0] w0 = mem_wdata_i[7:0];
-  wire [7:0] w1 = mem_wdata_i[15:8];
-  wire [7:0] w2 = mem_wdata_i[23:16];
-  wire [7:0] w3 = mem_wdata_i[31:24];
-
-  wire mode0 = mode_q[0];
-  wire mode1 = mode_q[1];
-  wire mode2 = mode_q[2];
-  wire mode3 = mode_q[3];
 
   always_ff @(posedge clk_i) begin
     if (!rst_ni) begin
-      state_q         <= RESET_SRAMS;
-      reset_addr_q    <= '0;
-      addr_q          <= '0;
-      wdata_q         <= '0;
-      mode_q          <= '0;
-      data_read_q     <= '0;
-      data_to_write_q <= '0;
+      state_q      <= RESET_SRAMS;
+      reset_addr_q <= '0;
+      word_addr_q  <= '0;
+      wdata_q      <= '0;
+      mode_q       <= '0;
+      rdata_q      <= '0;
     end else if (debug_mode_i) begin
-      {
-        data_to_write_q, data_read_q, mode_q, wdata_q,
-        addr_q, reset_addr_q, state_q
-      } <= {scan_state[100:0], scan_in_i};
+      {rdata_q, wdata_q, word_addr_q, reset_addr_q, mode_q, state_q}
+        <= {scan_state[88:0], scan_in_i};
     end else begin
-      state_q         <= state_d;
-      reset_addr_q    <= reset_addr_d;
-      addr_q          <= addr_d;
-      wdata_q         <= wdata_d;
-      mode_q          <= mode_d;
-      data_read_q     <= data_read_d;
-      data_to_write_q <= data_to_write_d;
+      state_q      <= state_d;
+      reset_addr_q <= reset_addr_d;
+      word_addr_q  <= word_addr_d;
+      wdata_q      <= wdata_d;
+      mode_q       <= mode_d;
+      rdata_q      <= rdata_d;
     end
   end
 
-  logic [23:0] data_read_q_slice;
-  assign data_read_q_slice = data_read_q[31:8];
+  wire [8:0] mem_word_addr = mem_addr_i[8:0];
 
+  // Next-state + read capture
   always_comb begin
-    state_d         = state_q;
-    reset_addr_d    = reset_addr_q;
-    addr_d          = addr_q;
-    wdata_d         = wdata_q;
-    mode_d          = mode_q;
-    data_read_d     = data_read_q;
-    data_to_write_d = data_to_write_q;
+    state_d      = state_q;
+    reset_addr_d = reset_addr_q;
+    word_addr_d  = word_addr_q;
+    wdata_d      = wdata_q;
+    mode_d       = mode_q;
+    rdata_d      = rdata_q;
 
     case (state_q)
 
-      RESET_SRAMS: begin
-        state_d = RESET_DATA;
-      end
+      RESET_SRAMS: state_d = RESET_DATA;
 
       RESET_DATA: begin
-        reset_addr_d = reset_addr_q + 1;
-        if (reset_addr_q == 11'd2047)
+        reset_addr_d = reset_addr_q + 1'b1;
+        if (reset_addr_q == 10'd1023)
           state_d = IDLE;
       end
 
       IDLE: begin
         if (mem_valid_i && mem_ready_o) begin
-          state_d         = MEM_REQ_0;
-          wdata_d         = mem_wdata_i;
-          mode_d          = mem_wstrb_i;
-          addr_d          = {mem_word_addr, 2'b00};
-          data_to_write_d = w0;
-          data_read_d     = 32'd0;
+          word_addr_d = mem_word_addr;
+          wdata_d     = mem_wdata_i;
+          mode_d      = mem_wstrb_i;
+          rdata_d     = 32'd0;
+          state_d     = MEM_REQ_0;
         end
       end
 
-      MEM_REQ_0: begin
-        addr_d          = addr_q + 1;
-        data_to_write_d = w1;
-        state_d         = MEM_REQ_1;
-      end
+      MEM_REQ_0: state_d = MEM_REQ_1;
 
       MEM_REQ_1: begin
-        addr_d          = addr_q + 1;
-        data_to_write_d = w2;
-        data_read_d     = {data_read_from_sram, data_read_q_slice};
-        state_d         = MEM_REQ_2;
+        // Q reflects half 0 (presented in MEM_REQ_0): b0=q0 (macro0), b2=q1 (macro1)
+        rdata_d[7:0]   = q0;
+        rdata_d[23:16] = q1;
+        state_d        = MEM_REQ_2;
       end
 
       MEM_REQ_2: begin
-        addr_d          = addr_q + 1;
-        data_to_write_d = w3;
-        data_read_d     = {data_read_from_sram, data_read_q_slice};
-        state_d         = MEM_REQ_3;
-      end
-
-      MEM_REQ_3: begin
-        data_read_d = {data_read_from_sram, data_read_q_slice};
-        state_d     = MEM_REQ_4;
-      end
-
-      MEM_REQ_4: begin
-        data_read_d = {data_read_from_sram, data_read_q_slice};
-        state_d     = MEM_RESP;
+        // Q reflects half 1 (presented in MEM_REQ_1): b1=q0 (macro0), b3=q1 (macro1)
+        rdata_d[15:8]  = q0;
+        rdata_d[31:24] = q1;
+        state_d        = MEM_RESP;
       end
 
       MEM_RESP: begin
@@ -184,57 +147,68 @@ module mem512x32
 
   assign mem_ready_o = (state_q == IDLE);
   assign mem_valid_o = (state_q == MEM_RESP);
-  assign mem_rdata_o = data_read_q;
+  assign mem_rdata_o = rdata_q;
+
+  // SRAM control. Both macros share the address bus and are enabled together;
+  // per-macro GWEN selects which byte lanes are written on each half.
+  logic [9:0] sram_addr;
+  logic       sram_cen;
+  logic       gwen0, gwen1;
+  logic [7:0] d0, d1;
 
   always_comb begin
-    sram_enable_n = 1'b1;
-    sram_addr     = addr_q;
-    sram_gwen     = 1'b1;
+    sram_cen  = 1'b1;
+    gwen0     = 1'b1;
+    gwen1     = 1'b1;
+    sram_addr = {word_addr_q, 1'b0};
+    d0        = wdata_q[7:0];
+    d1        = wdata_q[23:16];
 
-    if (state_q == RESET_DATA) begin
-      sram_enable_n = 1'b0;
-      sram_addr     = reset_addr_q;
-      sram_gwen     = 1'b0;
-    end
-    else begin
-      if (state_q == MEM_REQ_0) begin
-        sram_enable_n = 1'b0;
-        sram_gwen     = ~mode0;
+    case (state_q)
+      RESET_DATA: begin
+        sram_cen  = 1'b0;
+        gwen0     = 1'b0;
+        gwen1     = 1'b0;
+        sram_addr = reset_addr_q;
+        d0        = 8'h00;
+        d1        = 8'h00;
       end
-      else if (state_q == MEM_REQ_1) begin
-        sram_enable_n = 1'b0;
-        sram_gwen     = ~mode1;
+      MEM_REQ_0: begin           // half 0: byte0 (macro0), byte2 (macro1)
+        sram_cen  = 1'b0;
+        sram_addr = {word_addr_q, 1'b0};
+        d0        = wdata_q[7:0];    // b0
+        d1        = wdata_q[23:16];  // b2
+        gwen0     = is_write ? ~mode_q[0] : 1'b1;
+        gwen1     = is_write ? ~mode_q[2] : 1'b1;
       end
-      else if (state_q == MEM_REQ_2) begin
-        sram_enable_n = 1'b0;
-        sram_gwen     = ~mode2;
+      MEM_REQ_1: begin           // half 1: byte1 (macro0), byte3 (macro1)
+        sram_cen  = 1'b0;
+        sram_addr = {word_addr_q, 1'b1};
+        d0        = wdata_q[15:8];   // b1
+        d1        = wdata_q[31:24];  // b3
+        gwen0     = is_write ? ~mode_q[1] : 1'b1;
+        gwen1     = is_write ? ~mode_q[3] : 1'b1;
       end
-      else if (state_q == MEM_REQ_3) begin
-        sram_enable_n = 1'b0;
-        sram_gwen     = ~mode3;
-      end
-      else if (state_q == MEM_REQ_4) begin
-        sram_enable_n = 1'b0;
-        sram_gwen     = 1'b1;
-      end
-    end
+      default: ; // IDLE / MEM_REQ_2 / MEM_RESP: no SRAM access
+    endcase
 
     // Scan-shifted controller states must not accidentally write the SRAM
-    // macro. The inserted state takes effect after debug mode is released.
+    // macros. The inserted state takes effect after debug mode is released.
     if (debug_mode_i) begin
-      sram_enable_n = 1'b1;
-      sram_gwen     = 1'b1;
+      sram_cen = 1'b1;
+      gwen0    = 1'b1;
+      gwen1    = 1'b1;
     end
   end
 
-  // Low half (byte addresses 0..1023, macro_sel==0)
+  // macro0: byte lanes {0,1}
   (* keep *) gf180mcu_ocd_ip_sram__sram1024x8m8wm1 sram0 (
     .CLK(clk_i),
-    .CEN(sram_enable_n | macro_sel),
-    .GWEN(sram_gwen | macro_sel),
+    .CEN(sram_cen),
+    .GWEN(gwen0),
     .WEN(8'b0),
-    .A(sram_addr[9:0]),
-    .D(data_to_write_q),
+    .A(sram_addr),
+    .D(d0),
     .Q(q0)
     `ifdef USE_POWER_PINS
        // verilator lint_off ASSIGNIN
@@ -244,14 +218,14 @@ module mem512x32
     `endif
   );
 
-  // High half (byte addresses 1024..2047, macro_sel==1)
+  // macro1: byte lanes {2,3}
   (* keep *) gf180mcu_ocd_ip_sram__sram1024x8m8wm1 sram1 (
     .CLK(clk_i),
-    .CEN(sram_enable_n | ~macro_sel),
-    .GWEN(sram_gwen | ~macro_sel),
+    .CEN(sram_cen),
+    .GWEN(gwen1),
     .WEN(8'b0),
-    .A(sram_addr[9:0]),
-    .D(data_to_write_q),
+    .A(sram_addr),
+    .D(d1),
     .Q(q1)
     `ifdef USE_POWER_PINS
        // verilator lint_off ASSIGNIN

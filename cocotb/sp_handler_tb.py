@@ -33,33 +33,51 @@ async def setup_reset(dut):
     dut.rst_ni.value = 1
     await RisingEdge(dut.clk_i)
 
-async def cpu_write(dut, addr, data, strobe=0xF):
-    """Simulates a PicoRV32 memory write cycle"""
-    dut.mem_addr.value = addr
+async def cpu_write(dut, addr, data, strobe=None):
+    """Simulates a PicoRV32 memory write cycle.
+
+    The native bus is word-aligned (addr[1:0]==0); a byte store carries the
+    target lane in wstrb and the byte value on that lane. When `strobe` is
+    None this models a byte store to `addr`; pass an explicit strobe/data for
+    a raw word write.
+    """
+    lane = addr & 0x3
+    if strobe is None:
+        strobe = 1 << lane
+        data = (data & 0xFF) << (8 * lane)
+    dut.mem_addr.value = addr & ~0x3
     dut.mem_wdata.value = data
     dut.mem_wstrb.value = strobe
     dut.mem_valid.value = 1
-    
+    await Timer(1, unit="ns")  # let the combinational ready/decode settle
+
     # Wait for ready
     while int(dut.mem_ready.value) == 0:
         await RisingEdge(dut.clk_i)
-    
+        await Timer(1, unit="ns")
+
     await RisingEdge(dut.clk_i)
     dut.mem_valid.value = 0
     dut.mem_wstrb.value = 0
     dut._log.info(f"CPU WRITE: Addr={hex(addr)}, Data={hex(data)}")
 
 async def cpu_read(dut, addr):
-    """Simulates a PicoRV32 memory read cycle"""
-    dut.mem_addr.value = addr
+    """Simulates a PicoRV32 memory read cycle.
+
+    The bus returns the aligned word; the CPU extracts the byte at the
+    addressed lane (matches mmio packing the four pins into four byte lanes).
+    """
+    lane = addr & 0x3
+    dut.mem_addr.value = addr & ~0x3
     dut.mem_wstrb.value = 0
     dut.mem_valid.value = 1
+    await Timer(1, unit="ns")  # let the combinational rdata/decode settle
 
     while int(dut.mem_ready.value) == 0:
-        print(f"\n\n\n\ncpu_read\n\n\n\n")
         await RisingEdge(dut.clk_i)
-    
-    val = int(dut.mem_rdata.value)
+        await Timer(1, unit="ns")
+
+    val = (int(dut.mem_rdata.value) >> (8 * lane)) & 0xFF
     await RisingEdge(dut.clk_i)
     dut.mem_valid.value = 0
     dut._log.info(f"CPU READ:  Addr={hex(addr)}, Result={hex(val)}")
@@ -106,29 +124,45 @@ async def thorough_mmio_test(dut):
     await RisingEdge(dut.clk_i)
     assert dut.flush_valid_o.value == 0, "Flush valid did not clear after ready"
 
-    # 3. Config GPIO Direction (CSR at 0x8000_0018)
-    test_dir = 0x81
-    await cpu_write(dut, 0x8000_0018, test_dir)
-    await RisingEdge(dut.clk_i)
-    assert int(dut.gpio_dir_o.value) == test_dir, "CSR Update failed"
+    # 3. GPIO full-coverage test. Every one of the 8 pins must be individually
+    # addressable by the core: pin P lives at byte address 0x8000_0010 + P
+    # (addr[2] picks the 4-pin group, the wstrb byte lane picks the pin within
+    # it). Regression guard for the old bug where only pins 0 and 4 -- the
+    # lane-0 pins of each word -- were reachable.
 
-    # write and read output pin
-    await cpu_write(dut, 0x8000_0010, 0x1)
+    # 3a. All 8 pins as OUTPUTS: write a distinct per-pin value, read each back,
+    # and confirm the aggregate is driven onto gpio_pins_o.
+    await cpu_write(dut, 0x8000_0018, 0xFF)   # CSR: all outputs
     await RisingEdge(dut.clk_i)
-    await cpu_read(dut, 0x8000_0010)
-    assert int(dut.mem_rdata.value) == 1, "GPIO output pin was not successfully set"
+    assert int(dut.gpio_dir_o.value) == 0xFF, "CSR (dir) update failed"
 
-    # write and read input pin
-    await cpu_write(dut, 0x8000_0011, 0x1)
+    out_pattern = [1, 0, 1, 1, 0, 0, 1, 0]
+    for p in range(8):
+        await cpu_write(dut, 0x8000_0010 + p, out_pattern[p])
+    for p in range(8):
+        val = await cpu_read(dut, 0x8000_0010 + p)
+        assert val == out_pattern[p], (
+            f"output pin {p} readback: expected {out_pattern[p]}, got {val}"
+        )
+    expected_out = sum(out_pattern[p] << p for p in range(8))
+    assert int(dut.gpio_pins_o.value) == expected_out, (
+        f"gpio_pins_o: expected {expected_out:#04x}, "
+        f"got {hex(int(dut.gpio_pins_o.value))}"
+    )
+
+    # 3b. All 8 pins as INPUTS: CPU writes must not stick, and every pin must
+    # read back its (synchronized) external value.
+    await cpu_write(dut, 0x8000_0018, 0x00)   # CSR: all inputs
     await RisingEdge(dut.clk_i)
-    await cpu_read(dut, 0x8000_0011)
-    assert int(dut.mem_rdata.value) == 0, "GPIO input pin should not be set by CPU"
-    dut.gpio_pins_i.value = 0x2
-    # Allow the two-flop metastability synchronizer in mmio to settle before
-    # the value is observable on the CPU read datapath.
-    await ClockCycles(dut.clk_i, 3)
-    await cpu_read(dut, 0x8000_0011)
-    assert int(dut.mem_rdata.value) == 1, "GPIO input pin not successfully read"
+    for p in range(8):                        # writes to inputs are ignored
+        await cpu_write(dut, 0x8000_0010 + p, 1)
+    in_pattern = 0b0101_1010
+    dut.gpio_pins_i.value = in_pattern
+    await ClockCycles(dut.clk_i, 3)           # two-flop synchronizer settle
+    for p in range(8):
+        val = await cpu_read(dut, 0x8000_0010 + p)
+        exp = (in_pattern >> p) & 1
+        assert val == exp, f"input pin {p} read: expected {exp}, got {val}"
 
 
     # 4. Test Passthrough Logic

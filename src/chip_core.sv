@@ -50,7 +50,7 @@ module chip_core #(
 
     // The cache SRAM wrappers clear themselves after reset. Hold the CPU in
     // reset until the longest clear sequence, mem512x32, has reached IDLE.
-    localparam int MEM_INIT_CYCLES = 2049; // RESET_SRAMS + 2048 RESET_DATA cycles (4x data mem)
+    localparam int MEM_INIT_CYCLES = 1025; // RESET_SRAMS + 1024 RESET_DATA cycles (4x banked data mem, both macros cleared in parallel)
     localparam int MEM_INIT_COUNTER_WIDTH = $clog2(MEM_INIT_CYCLES + 1);
     localparam logic [MEM_INIT_COUNTER_WIDTH-1:0] MEM_INIT_COUNT_MAX = MEM_INIT_CYCLES;
 

@@ -19,8 +19,9 @@ gl = os.getenv("GL", False)
 
 hdl_toplevel = "mem512x32"
 
-# 4x: reset walks all 2048 byte rows (512 words x 4 bytes) across two 1024x8 macros
-INIT_BYTE_CYCLES = 2048
+# 4x banked: reset clears 1024 rows (both 1024x8 macros in parallel; each holds
+# 2 bytes x 512 words). RESET_SRAMS + 1024 RESET_DATA.
+INIT_BYTE_CYCLES = 1050
 NUM_WORDS = 512
 
 
@@ -186,9 +187,10 @@ async def test_mem_timing(dut):
     await reset(dut)
     await wait_init_done(dut)
 
+    # Banked read: two parallel SRAM accesses (half0, half1) + response, so a
+    # word read is ~3 cycles vs the old byte-serial ~6.
     _, cycles = await mem_read(dut, 0x20)
-    assert cycles >= 5, f"Memory response should take at least 5 cycles, took {cycles}"
-    assert cycles <= 8, f"Memory response took unexpectedly long: {cycles} cycles"
+    assert cycles == 3, f"Banked word read should take 3 cycles, took {cycles}"
 
     logger.info("Memory response took %d cycles", cycles)
 
