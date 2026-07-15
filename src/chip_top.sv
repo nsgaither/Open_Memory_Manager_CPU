@@ -60,14 +60,25 @@ module chip_top #(
     wire clk_PAD2CORE;
     wire rst_n_PAD2CORE;
 
+    // Buffered pad inputs. Each signal I/O pad's Y pin has a Liberty
+    // max_fanout of 1, so every pad output that drives more than one core
+    // load is re-driven here by a strong (* keep *) root buffer (mirrors the
+    // debug_mode / req_i distribution roots). This keeps pad fanout at one and
+    // moves the real fanout onto standard-cell buffers the tools can size.
+    wire clk_core;
+    wire rst_n_core;
+    localparam int GPIO_START_ID = 23; // bidir[23]..bidir[30] (GPIO / DFT pins)
+    localparam int GPIO_END_ID   = 30;
+    wire [NUM_BIDIR_PADS-1:0] bidir_in_core;
+
     // Assert reset immediately, but release it only after two clock edges.
     // Raw pad reset is confined to these synchronizer flops so every reset
     // consumer in the core observes deassertion in the same clock domain.
     (* async_reg = "true" *) logic [1:0] reset_sync_ff;
     wire rst_n_sync;
 
-    always_ff @(posedge clk_PAD2CORE or negedge rst_n_PAD2CORE) begin
-        if (!rst_n_PAD2CORE)
+    always_ff @(posedge clk_core or negedge rst_n_core) begin
+        if (!rst_n_core)
             reset_sync_ff <= 2'b00;
         else
             reset_sync_ff <= {reset_sync_ff[0], 1'b1};
@@ -271,6 +282,54 @@ module chip_top #(
     end
     endgenerate
 
+    // Clock pad fanout root: pad drives one clock buffer; CTS builds the tree
+    // from clk_core (both the reset synchronizer and the core hang off it).
+    (* keep *) gf180mcu_fd_sc_mcu7t5v0__clkbuf_16 clk_root_buf (
+        `ifdef USE_POWER_PINS
+        .VDD (VDD),
+        .VSS (VSS),
+        .VNW (VDD),
+        .VPW (VSS),
+        `endif
+        .I   (clk_PAD2CORE),
+        .Z   (clk_core)
+    );
+
+    // Reset pad fanout root: pad drives one buffer feeding the sync flops.
+    (* keep *) gf180mcu_fd_sc_mcu7t5v0__buf_16 rst_n_root_buf (
+        `ifdef USE_POWER_PINS
+        .VDD (VDD),
+        .VSS (VSS),
+        .VNW (VDD),
+        .VPW (VSS),
+        `endif
+        .I   (rst_n_PAD2CORE),
+        .Z   (rst_n_core)
+    );
+
+    // GPIO / DFT input pads: re-drive each through a root buffer so the pad Y
+    // stays at fanout one, then feed the buffered bus to the core. Non-GPIO
+    // bits pass through unchanged (their pads are single-load or already
+    // rooted via debug_mode / req_i above).
+    generate
+    for (genvar i=0; i<NUM_BIDIR_PADS; i++) begin : bidir_in_root
+        if (i >= GPIO_START_ID && i <= GPIO_END_ID) begin : gpio_buffered
+            (* keep *) gf180mcu_fd_sc_mcu7t5v0__buf_16 gpio_in_buf (
+                `ifdef USE_POWER_PINS
+                .VDD (VDD),
+                .VSS (VSS),
+                .VNW (VDD),
+                .VPW (VSS),
+                `endif
+                .I   (bidir_PAD2CORE[i]),
+                .Z   (bidir_in_core[i])
+            );
+        end else begin : passthrough
+            assign bidir_in_core[i] = bidir_PAD2CORE[i];
+        end
+    end
+    endgenerate
+
     // Core design
 
     chip_core #(
@@ -280,14 +339,14 @@ module chip_top #(
         .VDD        (VDD),
         .VSS        (VSS),
         `endif
-    
-        .clk        (clk_PAD2CORE),
+
+        .clk        (clk_core),
         .rst_n      (rst_n_sync),
 
         .debug_mode_i (debug_mode_branches),
         .req_i_branches (req_i_branches),
 
-        .bidir_in   (bidir_PAD2CORE),
+        .bidir_in   (bidir_in_core),
         .bidir_out  (bidir_CORE2PAD),
         .bidir_oe   (bidir_CORE2PAD_OE),
         .bidir_cs   (bidir_CORE2PAD_CS),
