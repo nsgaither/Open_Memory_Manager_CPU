@@ -33,11 +33,21 @@ module cache_interface #(
     output logic [3:0]          snoop_dircmd_o,
     input  logic                snoop_ready_i,
 
+    // Private instruction-fetch sideband (from sp_addr_handler, bypasses the
+    // cache controller). Request in, response out.
+    input  logic                instr_valid_i,
+    input  logic [31:0]         instr_addr_i,
+    output logic                instr_ready_o,
+    output logic                instr_rvalid_o,
+    output logic [31:0]         instr_rdata_o,
+
     // busy
     output logic                rbusy_o,
 
     // other
     output logic [7:0]          cpu_id_o,
+    // Boot-size status register, delivered inside the widened WhoAmI frame.
+    output logic [31:0]         boot_len_o,
     // -----------------------------------------------
 
     // DOWNSTREAM ------------------------------------
@@ -49,11 +59,16 @@ module cache_interface #(
     // -----------------------------------------------
 );
 
-    typedef enum logic [3:0] { 
+    typedef enum logic [3:0] {
         NULL            = 4'b0000,
         BusRD           = 4'b0001,
         BusRDX          = 4'b0010,
         BusUPGR         = 4'b0011,
+
+        // Private instruction fetch: bypasses cache_controller + directory
+        // coherence, served straight from main memory. Injected here from the
+        // sp_addr_handler sideband, not from cache_controller.
+        InstrFetch      = 4'b0100,
 
         EvictClean      = 4'b0101,
         EvictDirty      = 4'b0110,
@@ -63,7 +78,7 @@ module cache_interface #(
         SnoopBusRDX     = 4'b1010,
         SnoopBusUPGR    = 4'b1011,
 
-        
+
         WhoAmI          = 4'b1110,
         ResetDone       = 4'b1111
     } metadata;
@@ -81,19 +96,41 @@ module cache_interface #(
     wire scan_after_rserializer;
     wire scan_after_bus_pipe;
     wire scan_after_snoop_pipe;
+
+    // Transmit arbitration: the cache_controller stream has priority over the
+    // instruction-fetch sideband. picorv32 is single-outstanding, so a CPU data
+    // request and a fetch never coexist; the only overlap is a fetch vs a
+    // cache_controller snoop-ack, which the fetch simply waits behind (it cannot
+    // deadlock -- a stalled fetch generates no new CPU traffic, snoop-acks drain).
+    logic tx_sel_instr;
+    assign tx_sel_instr = instr_valid_i & ~cache_valid_i;
+
     // cache_cmd_i is already the 4-bit binary `metadata` code, so the packet's
     // metadata field is just cache_cmd_i; the case only selects msg length + payload.
     always_comb begin : build_packet
-        case (cache_cmd_i)
-            BusRD, BusRDX, BusUPGR : t_packet = {MEDIUM,  32'b0,        cache_addr_i, cache_cmd_i};
-            EvictClean             : t_packet = {MEDIUM,  32'b0,        cache_addr_i, cache_cmd_i};
-            EvictDirty             : t_packet = {LARGE,   cache_data_i, cache_addr_i, cache_cmd_i};
-            SnoopBusRD, SnoopBusRDX: t_packet = {MEDIUM,  32'b0,        cache_data_i, cache_cmd_i};
-            SnoopBusUPGR           : t_packet = {CMDONLY, 32'b0,        32'b0,        cache_cmd_i};
-            ResetDone              : t_packet = {CMDONLY, 32'b0,        32'b0,        cache_cmd_i};
-            default                : t_packet = '0;
-        endcase
+        if (tx_sel_instr) begin
+            // Private fetch request: command + address, MEDIUM (36-bit) frame.
+            t_packet = {MEDIUM, 32'b0, instr_addr_i, InstrFetch};
+        end else begin
+            case (cache_cmd_i)
+                BusRD, BusRDX, BusUPGR : t_packet = {MEDIUM,  32'b0,        cache_addr_i, cache_cmd_i};
+                EvictClean             : t_packet = {MEDIUM,  32'b0,        cache_addr_i, cache_cmd_i};
+                EvictDirty             : t_packet = {LARGE,   cache_data_i, cache_addr_i, cache_cmd_i};
+                SnoopBusRD, SnoopBusRDX: t_packet = {MEDIUM,  32'b0,        cache_data_i, cache_cmd_i};
+                SnoopBusUPGR           : t_packet = {CMDONLY, 32'b0,        32'b0,        cache_cmd_i};
+                ResetDone              : t_packet = {CMDONLY, 32'b0,        32'b0,        cache_cmd_i};
+                default                : t_packet = '0;
+            endcase
+        end
     end
+
+    // Single tserializer valid = either source wants to send; ready is routed to
+    // whichever source is currently selected.
+    logic tser_valid;
+    logic tser_ready;
+    assign tser_valid    = cache_valid_i | instr_valid_i;
+    assign cache_ready_o = tser_ready & ~tx_sel_instr;
+    assign instr_ready_o = tser_ready &  tx_sel_instr;
 
     tserializer #(
         .NUM_PINS    (NUM_TPINS),
@@ -112,19 +149,23 @@ module cache_interface #(
         .req_o    (req_o),
         .serial_o (serial_o),
 
-        .valid_i  (cache_valid_i),
+        .valid_i  (tser_valid),
         .data_in  ({4'b0, t_packet[67:0]}),
         .msg_type (t_packet[69:68]),
-        .ready_o  (cache_ready_o)
+        .ready_o  (tser_ready)
     );
 
     // RECEIVING
-    wire [(int'($ceil(real'(36) / NUM_RPINS)) * NUM_RPINS)-1:0] rpacket_full;
+    // Widened to 68 so the WhoAmI LARGE frame (boot_len + cpu_id) fits. A 36-bit
+    // ack still lands in rpacket_full[35:0] identically (the rserializer fills
+    // from word 0 upward), so bus/snoop decode is unchanged; only WhoAmI reads
+    // the upper bits [67:36].
+    wire [(int'($ceil(real'(68) / NUM_RPINS)) * NUM_RPINS)-1:0] rpacket_full;
     wire rvalid_o;
     assign rbusy_o = req_i_branches[0];
     rserializer #(
         .NUM_PINS    (NUM_RPINS),
-        .MAX_MSG_LEN (36)
+        .MAX_MSG_LEN (68)
     ) u_rserializer (
         .clk_i    (clk_i),
         .rst_ni   (rst_ni),
@@ -145,17 +186,21 @@ module cache_interface #(
 
     logic           bus_valid_d;
     logic           snoop_valid_d;
+    logic           instr_resp_valid_d;
 
     // No one-hot conversion: rmetadata IS the command code passed downstream.
-    // Just route it to the bus vs snoop pipe. dir->cache acks echo the request's
-    // metadata code (EvictDirty = dirty writeback persisted).
+    // Just route it to the bus vs snoop pipe (or the instruction-fetch response).
+    // dir->cache acks echo the request's metadata code (EvictDirty = dirty
+    // writeback persisted; InstrFetch = fetched word returned).
     always_comb begin : decode_packet
-        bus_valid_d   = 1'b0;
-        snoop_valid_d = 1'b0;
+        bus_valid_d        = 1'b0;
+        snoop_valid_d      = 1'b0;
+        instr_resp_valid_d = 1'b0;
 
         case (rmetadata)
-            BusRD, BusRDX, BusUPGR, EvictDirty    : bus_valid_d   = rvalid_o;
-            SnoopBusRD, SnoopBusRDX, SnoopBusUPGR : snoop_valid_d = rvalid_o;
+            BusRD, BusRDX, BusUPGR, EvictDirty    : bus_valid_d        = rvalid_o;
+            SnoopBusRD, SnoopBusRDX, SnoopBusUPGR : snoop_valid_d      = rvalid_o;
+            InstrFetch                            : instr_resp_valid_d = rvalid_o;
             default                               : ;
         endcase
     end
@@ -208,9 +253,15 @@ module cache_interface #(
     );
 
     // hold cpu_id
+    logic [31:0] boot_len_r;
+    logic        instr_rvalid_r;
+    logic [31:0] instr_rdata_r;
+
     logic [7:0] cpu_id_r;
     assign cpu_id_o = cpu_id_r;
-    assign scan_out_o[0] = cpu_id_r[7];
+    // DFT scan lane 0 tail: ... -> cpu_id_r -> boot_len_r -> instr_rdata_r ->
+    // instr_rvalid_r -> scan_out_o[0]. (Lane 1 stays the serializer chain.)
+    assign scan_out_o[0] = instr_rvalid_r;
     assign scan_out_o[1] = scan_after_rserializer;
 
     always_ff @( posedge clk_i ) begin : cpuid_reg
@@ -220,6 +271,37 @@ module cache_interface #(
             cpu_id_r <= {cpu_id_r[6:0], scan_after_snoop_pipe};
         end else if ((rmetadata == WhoAmI) & (rvalid_o == 1)) begin
             cpu_id_r <= rpacket_full[11:4];
+        end
+    end
+
+    // hold boot_len: upper 32 bits of the WhoAmI LARGE frame. Static after boot;
+    // feeds sp_addr_handler data normalization + the 0x8000_0004 MMIO read.
+    assign boot_len_o = boot_len_r;
+    always_ff @( posedge clk_i ) begin : bootlen_reg
+        if (!rst_ni)
+            boot_len_r <= '0;
+        else if (debug_mode_i)
+            boot_len_r <= {boot_len_r[30:0], cpu_id_r[7]};   // DFT: after cpu_id_r
+        else if ((rmetadata == WhoAmI) & (rvalid_o == 1'b1))
+            boot_len_r <= rpacket_full[67:36];
+    end
+
+    // Private instruction-fetch response: a 1-cycle valid pulse + latched word,
+    // consumed by sp_addr_handler (which is waiting -- single-outstanding fetch).
+    assign instr_rvalid_o = instr_rvalid_r;
+    assign instr_rdata_o  = instr_rdata_r;
+    always_ff @( posedge clk_i ) begin : instr_resp_reg
+        if (!rst_ni) begin
+            instr_rvalid_r <= 1'b0;
+            instr_rdata_r  <= '0;
+        end else if (debug_mode_i) begin
+            // DFT: instr_rdata_r after boot_len_r, then instr_rvalid_r (chain tail).
+            instr_rdata_r  <= {instr_rdata_r[30:0], boot_len_r[31]};
+            instr_rvalid_r <= instr_rdata_r[31];
+        end else begin
+            instr_rvalid_r <= instr_resp_valid_d;
+            if (instr_resp_valid_d)
+                instr_rdata_r <= receive_data_d;   // rpacket_full[35:4] = fetched word
         end
     end
 

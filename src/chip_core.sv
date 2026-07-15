@@ -237,6 +237,15 @@ module chip_core #(
 
     wire [7:0] cpu_id;
 
+    // Private instruction-fetch sideband: sp_addr_handler <-> cache_interface,
+    // bypassing the cache controller. Plus boot_len delivered via whoami.
+    wire        instr_valid;
+    wire [31:0] instr_addr;
+    wire        instr_ready;
+    wire        instr_rvalid;
+    wire [31:0] instr_rdata;
+    wire [31:0] boot_len;
+
     sp_addr_handler u_sp_addr_handler (
         .clk_i           (clk_i),
         .rst_ni          (rst_n),
@@ -251,6 +260,7 @@ module chip_core #(
         .mem_wdata       (mem_wdata),
         .mem_wstrb       (mem_wstrb),
         .mem_rdata       (mem_rdata),
+        .mem_instr       (mem_instr),
 
         // Downstream passthrough interface
         .pass_mem_valid  (pass_mem_valid),
@@ -270,8 +280,16 @@ module chip_core #(
         .gpio_pins_i     (gpio_pins_i),
         .gpio_dir_o      (gpio_dir),
 
-        // CPU ID
-        .cpu_id_i        (cpu_id)
+        // Private instruction-fetch sideband
+        .instr_valid_o   (instr_valid),
+        .instr_addr_o    (instr_addr),
+        .instr_ready_i   (instr_ready),
+        .instr_rvalid_i  (instr_rvalid),
+        .instr_rdata_i   (instr_rdata),
+
+        // CPU ID + boot-size status
+        .cpu_id_i        (cpu_id),
+        .boot_len_i      (boot_len)
     );
 
     // Cache Controller
@@ -373,11 +391,19 @@ module chip_core #(
         .snoop_dircmd_o (snoop_dircmd),
         .snoop_ready_i  (snoop_ready),
 
+        // Private instruction-fetch sideband (from sp_addr_handler)
+        .instr_valid_i  (instr_valid),
+        .instr_addr_i   (instr_addr),
+        .instr_ready_o  (instr_ready),
+        .instr_rvalid_o (instr_rvalid),
+        .instr_rdata_o  (instr_rdata),
+
         // busy
         .rbusy_o        (rbusy),
 
         // other
         .cpu_id_o       (cpu_id),
+        .boot_len_o     (boot_len),
 
         // DOWNSTREAM ------------------------------------
         
