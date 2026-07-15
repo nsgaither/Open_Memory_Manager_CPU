@@ -1,6 +1,6 @@
 `default_nettype none
 
-module mem128x32
+module mem512x32
 (
   input  wire         clk_i,
   input  wire         rst_ni,
@@ -40,26 +40,37 @@ module mem128x32
 
   state_t state_q, state_d;
 
-  logic [8:0]  reset_addr_q, reset_addr_d;
-  logic [8:0]  addr_q, addr_d;
+  logic [10:0] reset_addr_q, reset_addr_d;
+  logic [10:0] addr_q, addr_d;
   logic [31:0] wdata_q, wdata_d;
   logic [3:0]  mode_q, mode_d;
   logic [31:0] data_read_q, data_read_d;
   logic [7:0]  data_to_write_q, data_to_write_d;
 
-  logic [97:0] scan_state;
+  logic [101:0] scan_state;
   assign scan_state = {
     data_to_write_q, data_read_q, mode_q, wdata_q,
     addr_q, reset_addr_q, state_q
   };
-  assign scan_out_o = scan_state[97];
+  assign scan_out_o = scan_state[101];
 
   logic        sram_enable_n;
-  logic [8:0]  sram_addr;
+  logic [10:0] sram_addr;
   logic [7:0]  data_read_from_sram;
   logic        sram_gwen;
 
-  wire [6:0] mem_word_addr = mem_addr_i[6:0];
+  // 4x data store (512 words x 32b = 2048 bytes) spans two 3.3V ocd 1024x8
+  // macros. A 32-bit word occupies 4 consecutive byte rows at base = word*4,
+  // so the macro-select bit (byte-address bit[10] = word_addr[8]) is invariant
+  // across a word's 4-byte walk. That lets one combinational select drive both
+  // the per-macro write/enable gating and the read mux -- no extra pipeline
+  // register, so the DFT scan chain gains only the widened address counters.
+  logic       macro_sel;
+  logic [7:0] q0, q1;
+  assign macro_sel = sram_addr[10];
+  assign data_read_from_sram = macro_sel ? q1 : q0;
+
+  wire [8:0] mem_word_addr = mem_addr_i[8:0];
 
   wire [7:0] w0 = mem_wdata_i[7:0];
   wire [7:0] w1 = mem_wdata_i[15:8];
@@ -84,7 +95,7 @@ module mem128x32
       {
         data_to_write_q, data_read_q, mode_q, wdata_q,
         addr_q, reset_addr_q, state_q
-      } <= {scan_state[96:0], scan_in_i};
+      } <= {scan_state[100:0], scan_in_i};
     end else begin
       state_q         <= state_d;
       reset_addr_q    <= reset_addr_d;
@@ -116,7 +127,7 @@ module mem128x32
 
       RESET_DATA: begin
         reset_addr_d = reset_addr_q + 1;
-        if (reset_addr_q == 9'd511)
+        if (reset_addr_q == 11'd2047)
           state_d = IDLE;
       end
 
@@ -216,14 +227,32 @@ module mem128x32
     end
   end
 
-  (* keep *) gf180mcu_fd_ip_sram__sram512x8m8wm1 sram0 (
+  // Low half (byte addresses 0..1023, macro_sel==0)
+  (* keep *) gf180mcu_ocd_ip_sram__sram1024x8m8wm1 sram0 (
     .CLK(clk_i),
-    .CEN(sram_enable_n),
-    .GWEN(sram_gwen),
+    .CEN(sram_enable_n | macro_sel),
+    .GWEN(sram_gwen | macro_sel),
     .WEN(8'b0),
-    .A(sram_addr),
+    .A(sram_addr[9:0]),
     .D(data_to_write_q),
-    .Q(data_read_from_sram)
+    .Q(q0)
+    `ifdef USE_POWER_PINS
+       // verilator lint_off ASSIGNIN
+    ,.VDD(VDD)
+    ,.VSS(VSS)
+       // verilator lint_on ASSIGNIN
+    `endif
+  );
+
+  // High half (byte addresses 1024..2047, macro_sel==1)
+  (* keep *) gf180mcu_ocd_ip_sram__sram1024x8m8wm1 sram1 (
+    .CLK(clk_i),
+    .CEN(sram_enable_n | ~macro_sel),
+    .GWEN(sram_gwen | ~macro_sel),
+    .WEN(8'b0),
+    .A(sram_addr[9:0]),
+    .D(data_to_write_q),
+    .Q(q1)
     `ifdef USE_POWER_PINS
        // verilator lint_off ASSIGNIN
     ,.VDD(VDD)

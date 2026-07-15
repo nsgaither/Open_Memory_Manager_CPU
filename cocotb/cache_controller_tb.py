@@ -127,8 +127,8 @@ async def reset_dut(dut):
     await RisingEdge(dut.clk_i)
     dut.rst_ni.value = 1
 
-    # its take very long to reset all the srams
-    cycles_to_reset: int = 2 * 512
+    # its take very long to reset all the srams (4x data mem walks 2048 rows)
+    cycles_to_reset: int = 2100
     for _ in range(cycles_to_reset):
         await RisingEdge(dut.clk_i)
 
@@ -932,13 +932,12 @@ def cache_controller_test():
         proj_path / "../src/cache_controller/on_snoop_event_state_machine.sv",
         proj_path / "../src/cache_controller/cache_controller.sv",
         proj_path / "../src/cache_controller/outbound_arbiter.sv",
-        proj_path / "../src/mem_ctrl/mem128x6.sv",
-        proj_path / "../src/mem_ctrl/mem128x32.sv",
+        proj_path / "../src/mem_ctrl/mem512x6.sv",
+        proj_path / "../src/mem_ctrl/mem512x32.sv",
         proj_path / "../src/mem_ctrl/cache_mem.sv",
         proj_path / "../src/mem_ctrl/two_port_cache_mem.sv",
-        pdk_root / "gf180mcuD/libs.ref/gf180mcu_fd_ip_sram/verilog/gf180mcu_fd_ip_sram__sram512x8m8wm1.v",
-        pdk_root / "gf180mcuD/libs.ref/gf180mcu_fd_ip_sram/verilog/gf180mcu_fd_ip_sram__sram128x8m8wm1.v",
-        pdk_root / "gf180mcuD/libs.ref/gf180mcu_fd_ip_sram/verilog/gf180mcu_fd_ip_sram__sram64x8m8wm1.v",
+        proj_path / "models/gf180_ocd_sram1024x8_model.sv",
+        proj_path / "models/gf180_ocd_sram512x8_model.sv",
     ]
 
     build_args = []

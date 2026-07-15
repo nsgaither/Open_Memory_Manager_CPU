@@ -6,10 +6,11 @@ from typing import Final
 
 # Configrable
 ## memory sizes in btyes
-MAIN_MEM_SIZE_IN_WORDS: Final = 2048
+## 4x cache: 512 lines (index 9b) + 4b tag => 13-bit / 8192-word address space
+MAIN_MEM_SIZE_IN_WORDS: Final = 8192
 ## cache configs
 CACHE_LINE_SIZE_IN_WORDS: Final = 1
-CACHE_MEM_SIZE_IN_WORDS: Final = 128
+CACHE_MEM_SIZE_IN_WORDS: Final = 512
 
 
 # Calcs based on config

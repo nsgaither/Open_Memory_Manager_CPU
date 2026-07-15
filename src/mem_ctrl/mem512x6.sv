@@ -1,6 +1,6 @@
 `default_nettype none
 
-module mem128x6
+module mem512x6
 (
   input  logic        clk_i,
   input  logic        rst_ni,
@@ -26,10 +26,9 @@ module mem128x6
   `endif
 );
 
-  // Same shape as mem128x4, minus the nibble packing: each of the 128
-  // cache lines gets its own byte row (only 6 of the 8 bits are used),
-  // so this rides on the 128x8 macro instead of the 64x8 one -- a 1:1
-  // fit, no nibble packing and no unused rows.
+  // 4x tag+state store. Each of the 512 cache lines gets its own byte row
+  // (only 6 of the 8 bits are used: 4 tag + 2 state), a 1:1 fit on the 3.3V
+  // ocd 512x8 macro (the ocd family has no 128x8). Index is 9 bits (512 lines).
   typedef enum logic [2:0] {
     RESET_SRAMS  = 3'b000,
     RESET_DATA   = 3'b001,
@@ -41,22 +40,22 @@ module mem128x6
 
   state_t state_q, state_d;
 
-  logic [6:0] reset_addr_q, reset_addr_d;
-  logic [6:0] addr_q, addr_d;
+  logic [8:0] reset_addr_q, reset_addr_d;
+  logic [8:0] addr_q, addr_d;
   logic [5:0] wdata_q, wdata_d;
   logic [7:0] data_read_q, data_read_d;
   logic [7:0] data_to_write_q, data_to_write_d;
   logic [7:0] data_to_write;
 
-  logic [38:0] scan_state;
+  logic [42:0] scan_state;
   assign scan_state = {
     data_to_write_q, data_read_q, wdata_q,
     addr_q, reset_addr_q, state_q
   };
-  assign scan_out_o = scan_state[38];
+  assign scan_out_o = scan_state[42];
 
   logic       sram_enable_n;
-  logic [6:0] sram_addr;
+  logic [8:0] sram_addr;
   logic [7:0] data_read_from_sram;
   logic [7:0] sram_bit_mask;
   logic       sram_gwen;
@@ -73,7 +72,7 @@ module mem128x6
       {
         data_to_write_q, data_read_q, wdata_q,
         addr_q, reset_addr_q, state_q
-      } <= {scan_state[37:0], scan_in_i};
+      } <= {scan_state[41:0], scan_in_i};
     end else begin
       state_q         <= state_d;
       reset_addr_q    <= reset_addr_d;
@@ -85,8 +84,8 @@ module mem128x6
   end
 
   // pre sliced wires
-  logic [6:0] mem_addr_slice;
-  assign mem_addr_slice = mem_addr_i[6:0];
+  logic [8:0] mem_addr_slice;
+  assign mem_addr_slice = mem_addr_i[8:0];
 
 
   always_comb begin
@@ -111,7 +110,7 @@ module mem128x6
         sram_enable_n = 1'b0;
         sram_gwen     = 1'b0;
         sram_bit_mask = 8'h00;
-        if (reset_addr_q == 7'd127)
+        if (reset_addr_q == 9'd511)
           state_d = IDLE;
         else
           reset_addr_d = reset_addr_q + 1'b1;
@@ -185,7 +184,7 @@ module mem128x6
     end
   end
 
-  gf180mcu_fd_ip_sram__sram128x8m8wm1 sram0 (
+  (* keep *) gf180mcu_ocd_ip_sram__sram512x8m8wm1 sram0 (
     .CLK (clk_i),
     .CEN (sram_enable_n),
     .GWEN(sram_gwen),

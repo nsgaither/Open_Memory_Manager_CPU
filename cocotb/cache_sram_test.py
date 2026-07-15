@@ -18,7 +18,7 @@ scl = os.getenv("SCL", "gf180mcu_fd_sc_mcu7t5v0")
 gl = os.getenv("GL", False)
 slot = os.getenv("SLOT", "1x1")
 
-hdl_toplevel = "mem128x32"
+hdl_toplevel = "mem512x32"
 
 async def start_clock(dut, freq_mhz=50):
     clock = Clock(dut.clk_i, 1 / freq_mhz * 1000, unit="ns")
@@ -113,7 +113,7 @@ async def test_mem_ctrl_against_golden(dut):
 
     for _ in range(1, NUM_TRANSACTIONS + 1, 1):
 
-        addr = random.randint(0, 127)
+        addr = random.randint(0, 511)
         data = random.randint(0, 0xFFFF)
 
         wstrb = random.randint(1,15)
@@ -140,10 +140,10 @@ def mem_ctrl_runner():
     proj_path = Path(__file__).resolve().parent
 
     sources = [
-        # SRAM macro
-        Path(pdk_root) / pdk / "libs.ref/gf180mcu_fd_ip_sram/verilog/gf180mcu_fd_ip_sram__sram512x8m8wm1.v",
+        # SRAM macros (4x data store rides two ocd 1024x8)
+        proj_path / "models/gf180_ocd_sram1024x8_model.sv",
         # SRAM bank
-        proj_path / "../src/mem_ctrl/mem128x32.sv",
+        proj_path / "../src/mem_ctrl/mem512x32.sv",
     ]
 
     build_args = []
@@ -155,14 +155,14 @@ def mem_ctrl_runner():
     runner = get_runner(sim)
     runner.build(
         sources=sources,
-        hdl_toplevel="mem128x32",
+        hdl_toplevel="mem512x32",
         always=True,
         build_args=build_args,
         waves=True,
     )
 
     runner.test(
-        hdl_toplevel="mem128x32",
+        hdl_toplevel="mem512x32",
         test_module="cache_sram_test",
         waves=True,
     )

@@ -74,15 +74,15 @@ module cache_controller
   localparam logic [3:0] BUSUPGR_ACK     = 4'd3;
   localparam logic [3:0] EVICT_DIRTY_ACK = 4'd6;
 
-  // Address layout: addr[6:0]=index (7 bits), addr[10:7]=tag (4 bits)
-  // -- main memory is 2048 words (11 bits), so tag = 11 - 7 = 4 bits;
-  // the params are kept for documentation. Reconcile this before
-  // running real software on PicoRV32.
+  // Address layout (4x cache): addr[8:0]=index (9 bits, 512 lines),
+  // addr[12:9]=tag (4 bits) -- main memory is 8192 words (13 bits), so
+  // tag = 13 - 9 = 4 bits. Reconcile this with the interposer address map
+  // before running real software on PicoRV32.
   localparam int OFFSET_W = 0;
-  localparam int INDEX_W  = 7;
+  localparam int INDEX_W  = 9;
   localparam int TAG_W    = 4;
-  localparam int TAG_HI   = OFFSET_W + INDEX_W + TAG_W - 1;  // 10
-  localparam int TAG_LO   = OFFSET_W + INDEX_W;               // 7
+  localparam int TAG_HI   = OFFSET_W + INDEX_W + TAG_W - 1;  // 12
+  localparam int TAG_LO   = OFFSET_W + INDEX_W;               // 9
 
 
   typedef enum logic [2:0] {
@@ -208,7 +208,7 @@ module cache_controller
     // on processor event port
     .p0_valid_i(cm_cpu_valid_i),
     .p0_ready_o(cm_cpu_ready_o),
-    .p0_addr_i({25'd0, cm_cpu_addr_i[6:0]}), // take index bits as addr
+    .p0_addr_i({23'd0, cm_cpu_addr_i[8:0]}), // take index bits as addr
     .p0_wdata_i(cm_cpu_wdata_i),
     .p0_wstrb_i(cm_cpu_wstrb_i),
     .p0_wstate_i(cm_cpu_wstate_i),
@@ -223,7 +223,7 @@ module cache_controller
     // on snoop event port
     .p1_valid_i(cm_snoop_valid_i),
     .p1_ready_o(cm_snoop_ready_o),
-    .p1_addr_i({25'd0, cm_snoop_addr_i[6:0]}),
+    .p1_addr_i({23'd0, cm_snoop_addr_i[8:0]}),
     .p1_wdata_i(cm_snoop_wdata_i),
     .p1_wstrb_i(cm_snoop_wstrb_i),
     .p1_wstate_i(cm_snoop_wstate_i),
@@ -323,9 +323,9 @@ module cache_controller
   // ============================================================
   logic [31:0] evict_addr;
   assign evict_addr = {
-      21'd0,
+      19'd0,
       cpu_line_tag_q,
-      cpu_addr_q[6:0]
+      cpu_addr_q[8:0]
   };
 
 
@@ -821,7 +821,7 @@ module cache_controller
         // FIX: keep driving the write request while it's in flight, same as
         // CPU_READ_RESP/CPU_READ_MISS_UPDATE_LINE_RESP/SNP_UPDATE_LINE_RESP.
         // cm_cpu_ready_o just means "accepted this cycle" (asserted the
-        // instant mem128x32's multi-cycle write pipeline starts), not
+        // instant mem512x32's multi-cycle write pipeline starts), not
         // "finished" -- without re-asserting cm_cpu_wdata_i here it drops
         // to the default 0 one cycle into the write, corrupting every byte
         // lane captured after the first.

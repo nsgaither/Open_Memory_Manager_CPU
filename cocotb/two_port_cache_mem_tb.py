@@ -33,7 +33,8 @@ async def reset(dut):
 
     dut.rst_ni.value = 1
 
-    for _ in range(520):
+    # 4x data mem clears all 2048 byte rows before mem_ready_o asserts.
+    for _ in range(2100):
         await RisingEdge(dut.clk_i)
 
 
@@ -138,12 +139,11 @@ def test_two_port_cache_mem():
 
     sources = [
 
-        pdk_root / "gf180mcuD/libs.ref/gf180mcu_fd_ip_sram/verilog/gf180mcu_fd_ip_sram__sram512x8m8wm1.v",
-        pdk_root / "gf180mcuD/libs.ref/gf180mcu_fd_ip_sram/verilog/gf180mcu_fd_ip_sram__sram128x8m8wm1.v",
-        pdk_root / "gf180mcuD/libs.ref/gf180mcu_fd_ip_sram/verilog/gf180mcu_fd_ip_sram__sram64x8m8wm1.v",
+        proj_path / "models/gf180_ocd_sram1024x8_model.sv",
+        proj_path / "models/gf180_ocd_sram512x8_model.sv",
 
-        proj_path / "../src/mem_ctrl/mem128x32.sv",
-        proj_path / "../src/mem_ctrl/mem128x6.sv",
+        proj_path / "../src/mem_ctrl/mem512x32.sv",
+        proj_path / "../src/mem_ctrl/mem512x6.sv",
         proj_path / "../src/mem_ctrl/cache_mem.sv",
 
         proj_path / "../src/mem_ctrl/two_port_cache_mem.sv",

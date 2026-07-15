@@ -20,7 +20,7 @@ COCOTB_DIR = Path(__file__).resolve().parent
 TESTBENCHES = [
     "cache_mem_tb.py",
     "cache_sram_test.py",
-    "mem128x32_tb.py",
+    "mem512x32_tb.py",
     "test_mem_ctrl_128x4.py",
     "two_port_cache_mem_tb.py",
     "on_processor_event_state_machine_tb.py",

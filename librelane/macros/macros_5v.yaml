@@ -98,7 +98,7 @@ MACROS:
         location: [600, 600]
         orientation: S
 
-  # Cache tag+state store. mem128x6 (4-bit tag + 2-bit state, one byte-row
+  # Cache tag+state store. mem512x6 (4-bit tag + 2-bit state, one byte-row
   # per line) rides the 128x8 macro, replacing the old nibble-packed 64x8.
   gf180mcu_fd_ip_sram__sram128x8m8wm1:
     gds:

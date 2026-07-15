@@ -17,10 +17,11 @@ pdk = os.getenv("PDK", "gf180mcuD")
 scl = os.getenv("SCL", "gf180mcu_fd_sc_mcu7t5v0")
 gl = os.getenv("GL", False)
 
-hdl_toplevel = "mem128x32"
+hdl_toplevel = "mem512x32"
 
-INIT_BYTE_CYCLES = 512
-NUM_WORDS = 128
+# 4x: reset walks all 2048 byte rows (512 words x 4 bytes) across two 1024x8 macros
+INIT_BYTE_CYCLES = 2048
+NUM_WORDS = 512
 
 
 async def start_clock(dut, freq_mhz=50):
@@ -70,7 +71,7 @@ async def mem_transaction(dut, addr, data=0, strb=0, timeout_cycles=16):
     await wait_accept_ready(dut, f"request addr {addr:#x}")
 
     await FallingEdge(dut.clk_i)
-    dut.mem_addr_i.value = addr & 0x7F
+    dut.mem_addr_i.value = addr & 0x1FF
     dut.mem_wdata_i.value = data & 0xFFFFFFFF
     dut.mem_wstrb_i.value = strb & 0xF
     dut.mem_valid_i.value = 1
@@ -127,12 +128,14 @@ async def test_mem_write_read_multiple(dut):
     await reset(dut)
     await wait_init_done(dut)
 
+    # Span both 1024x8 macros: words 0..255 live in macro0 (addr[8]==0),
+    # words 256..511 in macro1 (addr[8]==1). Include the boundary + top word.
     test_data = [
-        (0x00, 0x12345678),
-        (0x01, 0xABCDEF01),
-        (0x02, 0x11223344),
-        (0x03, 0x55667788),
-        (0x7F, 0x0BADF00D),
+        (0x000, 0x12345678),  # macro0 bottom
+        (0x001, 0xABCDEF01),
+        (0x0FF, 0x0BADF00D),  # macro0 top (word 255)
+        (0x100, 0x11223344),  # macro1 bottom (word 256)
+        (0x1FF, 0x55667788),  # macro1 top (word 511)
     ]
 
     for addr, data in test_data:
@@ -190,7 +193,7 @@ async def test_mem_timing(dut):
     logger.info("Memory response took %d cycles", cycles)
 
 
-def mem128x32_runner():
+def mem512x32_runner():
     proj_path = Path(__file__).resolve().parent
 
     sources = []
@@ -200,18 +203,14 @@ def mem128x32_runner():
     if gl:
         sources.append(Path(pdk_root) / pdk / "libs.ref" / scl / "verilog" / f"{scl}.v")
         sources.append(Path(pdk_root) / pdk / "libs.ref" / scl / "verilog" / "primitives.v")
-        sources.append(proj_path / "../final/pnl/mem_ctrl_128x32.pnl.v")
+        sources.append(proj_path / "../final/pnl/mem512x32.pnl.v")
         defines = {"FUNCTIONAL": True, "USE_POWER_PINS": True}
     else:
-        sources.append(proj_path / "../src/mem_ctrl/mem128x32.sv")
+        sources.append(proj_path / "../src/mem_ctrl/mem512x32.sv")
 
-    sources.append(
-        Path(pdk_root) / pdk / "libs.ref/gf180mcu_fd_ip_sram/verilog/gf180mcu_fd_ip_sram__sram512x8m8wm1.v"
-    )
-
-    if sim == "verilator":
-        sources = [s for s in sources if "gf180mcu_fd_ip_sram__sram512x8m8wm1.v" not in str(s)]
-        sources.append(proj_path / "sram512x8_beh.v")
+    # 4x data store rides two ocd 1024x8 macros. Use the portable beh model
+    # (works on both Icarus and Verilator; PDK .v carries specify blocks).
+    sources.append(proj_path / "models/gf180_ocd_sram1024x8_model.sv")
 
     if sim == "icarus":
         build_args = ["-g2012"]
@@ -230,10 +229,10 @@ def mem128x32_runner():
 
     runner.test(
         hdl_toplevel=hdl_toplevel,
-        test_module="mem128x32_tb",
+        test_module="mem512x32_tb",
         waves=True,
     )
 
 
 if __name__ == "__main__":
-    mem128x32_runner()
+    mem512x32_runner()

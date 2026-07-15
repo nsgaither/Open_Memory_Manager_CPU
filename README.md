@@ -16,7 +16,7 @@ The core is a **PicoRV32** CPU with multiply/divide (RV32IM), backed by a custom
 │  │                    chip_core                            ││
 │  │                                                         ││
 │  │  ┌──────────────┐    ┌────────────────────────────┐     ││
-│  │  │  PicoRV32    │◄──►│  mem128x32 (memory ctrl)   │     ││
+│  │  │  PicoRV32    │◄──►│  mem512x32 (memory ctrl)   │     ││
 │  │  │  (RV32IM)    │    │  512x8 SRAM → 128x32 words │     ││
 │  │  │  25 MHz      │    │  4-cycle access latency    │     ││
 │  │  └──────────────┘    └────────────────────────────┘     ││
@@ -40,7 +40,7 @@ The core is a **PicoRV32** CPU with multiply/divide (RV32IM), backed by a custom
 | Block | Description |
 |---|---|
 | **PicoRV32** | Size-optimized RISC-V RV32I core with M extension (multiply/divide), native valid/ready memory interface |
-| **mem128x32** | Memory controller multiplexing 32-bit CPU accesses across 4 cycles to a single 512x8 SRAM macro (area-constrained) |
+| **mem512x32** | Memory controller multiplexing 32-bit CPU accesses across 4 cycles to two 3.3V ocd 1024x8 SRAM macros (512 words x 32b) |
 | **mem128x4** | Tag SRAM controller backed by a 64x8 SRAM, storing 128 4-bit tag/state entries |
 | **cache_controller** | Stub for future coherent cache with directory-based coherence and snoop interface |
 | **chip_id / logo** | Hard macros for wafer.space die marking (QR code and logo GDS) |
@@ -97,7 +97,7 @@ Cocotb-based testbenches using Icarus Verilog:
 | `make sim-gl` | Gate-level simulation (after `final/` populated) |
 | `make sim-view` | View waveforms in GTKWave |
 | `make test-chip-top` | Top-level pad, scan, and reset-gating tests |
-| `make test-mem128x32` | Main data-memory controller tests |
+| `make test-mem512x32` | Main data-memory controller tests |
 | `make test-mem-ctrl-128x4` | Tag/state memory-controller tests |
 
 ### Padring-Only Build
@@ -111,7 +111,7 @@ make librelane-padring
 ## Simulation Tests
 
 - **chip_top_tb.py** — Full-chip tests: reset/clock, pad I/O, memory controller FSM, CPU instruction fetch, trap on illegal instruction, SRAM interface timing, GPIO, system stress
-- **mem128x32_tb.py** — Memory controller timing and byte-level write tests
+- **mem512x32_tb.py** — Memory controller timing and byte-level write tests
 - **cache_sram_test.py** — 10,000 random transactions against a Python golden model
 
 ## Source Files
@@ -121,7 +121,7 @@ All RTL sources are in `src/`:
 - `chip_top.sv` — Top-level chip with pad ring instantiations
 - `chip_core.sv` — Core design instantiating CPU, memory controllers, and cache controller
 - `cache_controller/cache_controller.sv` — Coherent cache placeholder
-- `mem_ctrl/mem128x32.sv` — Main memory controller (512x8 SRAM)
+- `mem_ctrl/mem512x32.sv` — Main memory controller (two ocd 1024x8 SRAMs, 512 lines)
 - `mem_ctrl/mem128x4.sv` — Tag SRAM controller (64x8 SRAM)
 - `slot_defines.svh` — Pad counts per slot size
 

@@ -78,7 +78,35 @@ MACROS:
         location: [26, "expr::$DIE_AREA[3] - 169.25"]
         orientation: N
 
-  # 3.3V SRAM
+  # 3.3V 4x data store: 2 x ocd 1024x8 -> 512 lines x 32b (16 Kbit).
+  # West-edge column on the 0p5x0p5 core [442,442]-[1494,2089]; llx=477
+  # (35um off the west edge, clears the 25um core ring + macro halo). Verified
+  # in-core, non-overlapping; macro pins are on the south edge so the ~40um
+  # inter-macro gaps are the routing channels.
+  gf180mcu_ocd_ip_sram__sram1024x8m8wm1:
+    gds:
+      - pdk_dir::libs.ref/gf180mcu_ocd_ip_sram/gds/gf180mcu_ocd_ip_sram__sram1024x8m8wm1.gds
+    lef:
+      - pdk_dir::libs.ref/gf180mcu_ocd_ip_sram/lef/gf180mcu_ocd_ip_sram__sram1024x8m8wm1.lef
+    vh:
+      - pdk_dir::libs.ref/gf180mcu_ocd_ip_sram/verilog/gf180mcu_ocd_ip_sram__sram1024x8m8wm1__blackbox_pp.v
+    lib:
+      "*_tt_025C_3v30":
+        - pdk_dir::libs.ref/gf180mcu_ocd_ip_sram/lib/gf180mcu_ocd_ip_sram__sram1024x8m8wm1__tt_025C_3v30.lib
+      "*_ff_n40C_3v60":
+        - pdk_dir::libs.ref/gf180mcu_ocd_ip_sram/lib/gf180mcu_ocd_ip_sram__sram1024x8m8wm1__ff_n40C_3v60.lib
+      "*_ss_125C_3v00":
+        - pdk_dir::libs.ref/gf180mcu_ocd_ip_sram/lib/gf180mcu_ocd_ip_sram__sram1024x8m8wm1__ss_125C_3v00.lib
+    instances:
+      # Make sure to specify the SRAMs in pdn_cfg.tcl
+      i_chip_core.u_cache_controller.cache_mem.u_cache_mem.data.sram0:
+        location: [477, 482]
+        orientation: N
+      i_chip_core.u_cache_controller.cache_mem.u_cache_mem.data.sram1:
+        location: [477, 1037.81]
+        orientation: N
+
+  # 3.3V 4x tag+state store: ocd 512x8 -> 512 entries x 6b (top of column).
   gf180mcu_ocd_ip_sram__sram512x8m8wm1:
     gds:
       - pdk_dir::libs.ref/gf180mcu_ocd_ip_sram/gds/gf180mcu_ocd_ip_sram__sram512x8m8wm1.gds
@@ -94,16 +122,13 @@ MACROS:
       "*_ss_125C_3v00":
         - pdk_dir::libs.ref/gf180mcu_ocd_ip_sram/lib/gf180mcu_ocd_ip_sram__sram512x8m8wm1__ss_125C_3v00.lib
     instances:
-      # Make sure to specify the SRAMs in pdn_cfg.tcl
-      i_chip_core.sram_0:
-        location: [490, 500]
+      i_chip_core.u_cache_controller.cache_mem.u_cache_mem.tag.sram0:
+        location: [477, 1593.62]
         orientation: N
-      i_chip_core.sram_1:
-        location: [970, 500]
-        orientation: E
 
 # This is an alternative method compared to
 # specifying the power connections in the RTL
 PDN_MACRO_CONNECTIONS:
-- "i_chip_core.sram_0 VDD VSS VDD VSS"
-- "i_chip_core.sram_1 VDD VSS VDD VSS"
+- "i_chip_core.u_cache_controller.cache_mem.u_cache_mem.data.sram0 VDD VSS VDD VSS"
+- "i_chip_core.u_cache_controller.cache_mem.u_cache_mem.data.sram1 VDD VSS VDD VSS"
+- "i_chip_core.u_cache_controller.cache_mem.u_cache_mem.tag.sram0 VDD VSS VDD VSS"

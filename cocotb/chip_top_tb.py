@@ -39,7 +39,11 @@ SCAN_OUT_PADS = tuple(
     range(DEBUG_START_PAD + DFT_CHAINS, DEBUG_START_PAD + DFT_PINS)
 )
 NUM_SERIAL_PADS = 9
-SCAN_CHAIN_LENGTHS = (139, 198, 217, 119)
+# Measured scan-chain lengths after the 4x widen. Deltas vs the 1x baseline
+# (139,198,217,119): the cache mem wrappers gained +8 scan FFs total (mem512x6
+# 39->43, mem512x32 98->102) split across the cache chains, and chain 0 also
+# grew with the mem_init_count counter (MEM_INIT_CYCLES 513->2049 => 10->12b).
+SCAN_CHAIN_LENGTHS = (143, 199, 220, 119)
 
 
 def _pad_drive(width, driven_bits=None):
@@ -372,7 +376,8 @@ async def test_cpu_reset_held_until_memory_ready(dut):
     assert_scalar(core.memory_ready, 0, "memory_ready immediately after reset")
     assert_scalar(core.cpu_resetn, 0, "cpu_resetn immediately after reset")
 
-    for _ in range(520):
+    # 4x data mem clears 2048 rows: memory_ready asserts after MEM_INIT_CYCLES=2049.
+    for _ in range(2100):
         await ClockCycles(dut.clk_PAD, 1)
         await Timer(1, unit="ps")
         if int(core.memory_ready.value) == 1:
@@ -433,8 +438,8 @@ def chip_top_runner():
             proj_path / "../src/interposer_interface/tserializer.sv",
             proj_path / "../src/mem_ctrl/cache_mem.sv",
             proj_path / "../src/mem_ctrl/two_port_cache_mem.sv",
-            proj_path / "../src/mem_ctrl/mem128x32.sv",
-            proj_path / "../src/mem_ctrl/mem128x6.sv",
+            proj_path / "../src/mem_ctrl/mem512x32.sv",
+            proj_path / "../src/mem_ctrl/mem512x6.sv",
         ]
 
     sources += [
@@ -447,24 +452,12 @@ def chip_top_runner():
         proj_path / "../ip/gf180mcu_ws_ip__logo/vh/gf180mcu_ws_ip__logo.v",
     ]
 
-    if sdf:
-        sources += [
-            proj_path / "models/gf180_sram512x8_model.sv",
-            proj_path / "models/gf180_sram128x8_model.sv",
-            proj_path / "models/gf180_sram64x8_model.sv",
-        ]
-    else:
-        sources += [
-            pdk_root
-            / pdk
-            / "libs.ref/gf180mcu_fd_ip_sram/verilog/gf180mcu_fd_ip_sram__sram512x8m8wm1.v",
-            pdk_root
-            / pdk
-            / "libs.ref/gf180mcu_fd_ip_sram/verilog/gf180mcu_fd_ip_sram__sram128x8m8wm1.v",
-            pdk_root
-            / pdk
-            / "libs.ref/gf180mcu_fd_ip_sram/verilog/gf180mcu_fd_ip_sram__sram64x8m8wm1.v",
-        ]
+    # 4x cache: data on two ocd 1024x8, tag on ocd 512x8. Portable beh models
+    # (Icarus rejects the PDK SRAM specify paths, incl. under SDF).
+    sources += [
+        proj_path / "models/gf180_ocd_sram1024x8_model.sv",
+        proj_path / "models/gf180_ocd_sram512x8_model.sv",
+    ]
 
     build_args = []
     if sim == "icarus":

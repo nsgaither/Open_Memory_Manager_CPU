@@ -55,7 +55,7 @@ module cache_mem
   assign valid_o = (tag_mem_valid & data_mem_valid);
 
   
-  mem128x6 tag
+  mem512x6 tag
   (
     .clk_i(clk_i),
     .rst_ni(rst_ni),
@@ -76,7 +76,7 @@ module cache_mem
     `endif
   );
 
-  mem128x32 data
+  mem512x32 data
   (
     .clk_i(clk_i),
     .rst_ni(rst_ni),

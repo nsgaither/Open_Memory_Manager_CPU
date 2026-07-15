@@ -101,10 +101,19 @@ module chip_top #(
     wire req_i_root;
     wire [REQ_I_BRANCHES-1:0] req_i_branches;
 
-    // In the foundry pads, the I/O and
-    // core voltage domains are shorted
+    // Core/I-O supply merge.
+    //
+    // By default the core (VDD/VSS) and I/O (DVDD/DVSS) domains are joined
+    // physically by the PDN (PDN_CORE_RING_CONNECT_TO_PADS), per slot: the
+    // 0p5x0p5 slot has no dedicated core power pads, so the core is fed from
+    // the DVDD/DVSS I/O rails through the core ring.
+    //
+    // This RTL short is intentionally decoupled from the PAD_* selection so
+    // that emitting a PAD_gf180mcu_* define never silently welds the domains.
+    // It is a deliberate opt-in (SHORT_CORE_IO_SUPPLY), left OFF, to preserve
+    // a future split where separate VDD/VSS core pins carry their own domain.
     `ifdef USE_POWER_PINS
-    `ifdef PAD_gf180mcu_fd_io
+    `ifdef SHORT_CORE_IO_SUPPLY
     assign VDD = DVDD;
     assign VSS = DVSS;
     `endif
@@ -219,7 +228,7 @@ module chip_top #(
     end
     endgenerate
 
-    (* keep *) gf180mcu_fd_sc_mcu7t5v0__buf_16 req_i_root_buf (
+    (* keep *) omm_buf_16 req_i_root_buf (
         `ifdef USE_POWER_PINS
         .VDD (VDD),
         .VSS (VSS),
@@ -232,7 +241,7 @@ module chip_top #(
 
     generate
     for (genvar i=0; i<REQ_I_BRANCHES; i++) begin : req_i_tree
-        (* keep *) gf180mcu_fd_sc_mcu7t5v0__buf_16 branch_buf (
+        (* keep *) omm_buf_16 branch_buf (
             `ifdef USE_POWER_PINS
             .VDD (VDD),
             .VSS (VSS),
@@ -245,7 +254,7 @@ module chip_top #(
     end
     endgenerate
 
-    (* keep *) gf180mcu_fd_sc_mcu7t5v0__buf_16 debug_mode_root_buf (
+    (* keep *) omm_buf_16 debug_mode_root_buf (
         `ifdef USE_POWER_PINS
         .VDD (VDD),
         .VSS (VSS),
@@ -258,7 +267,7 @@ module chip_top #(
 
     generate
     for (genvar i=0; i<4; i++) begin : debug_mode_tree
-        (* keep *) gf180mcu_fd_sc_mcu7t5v0__buf_16 branch_buf (
+        (* keep *) omm_buf_16 branch_buf (
             `ifdef USE_POWER_PINS
             .VDD (VDD),
             .VSS (VSS),
@@ -306,6 +315,46 @@ module chip_top #(
     // wafer.space logo - can be removed if desired
     (* keep *) gf180mcu_ws_ip__logo wafer_space_logo ();
 
+endmodule
+
+// 16x buffer wrapper. Selects the drive-16 buffer cell for the active
+// standard-cell library so the hand-built req_i / debug_mode distribution
+// trees survive the 5V -> 3.3V switch. The 5V fd library exposes buf_16 with
+// I/Z ports; the 3.3V as library exposes buff_16 with A/Y ports. The (* keep *)
+// on the leaf cell prevents design-repair from collapsing the trees.
+module omm_buf_16 (
+`ifdef USE_POWER_PINS
+    inout  wire VDD,
+    inout  wire VSS,
+    inout  wire VNW,
+    inout  wire VPW,
+`endif
+    input  wire I,
+    output wire Z
+);
+`ifdef SCL_gf180mcu_as_sc_mcu7t3v3
+    (* keep *) gf180mcu_as_sc_mcu7t3v3__buff_16 u_buf (
+    `ifdef USE_POWER_PINS
+        .VDD (VDD),
+        .VSS (VSS),
+        .VNW (VNW),
+        .VPW (VPW),
+    `endif
+        .A   (I),
+        .Y   (Z)
+    );
+`else
+    (* keep *) gf180mcu_fd_sc_mcu7t5v0__buf_16 u_buf (
+    `ifdef USE_POWER_PINS
+        .VDD (VDD),
+        .VSS (VSS),
+        .VNW (VNW),
+        .VPW (VPW),
+    `endif
+        .I   (I),
+        .Z   (Z)
+    );
+`endif
 endmodule
 
 `default_nettype wire

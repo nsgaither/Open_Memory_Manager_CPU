@@ -78,11 +78,11 @@ async def cache_access(dut, addr, wdata=0, wstate=0, wtag=0, wstrb=0):
 
 class CacheMemGolden:
     def __init__(self):
-        self._data = bytearray(128 * 4)
-        self._tags = [0] * 128          # {wtag[3:0], wstate[1:0]}
+        self._data = bytearray(512 * 4)
+        self._tags = [0] * 512          # {wtag[3:0], wstate[1:0]}
 
     def write(self, addr, wdata, wstate, wtag, wstrb=0xF):
-        word_addr = addr & 0x7F
+        word_addr = addr & 0x1FF
         base      = word_addr * 4
         for b in range(4):
             if wstrb & (1 << b):
@@ -90,7 +90,7 @@ class CacheMemGolden:
         self._tags[word_addr] = ((wtag & 0xF) << 2) | (wstate & 0x3)
 
     def read(self, addr):
-        word_addr = addr & 0x7F
+        word_addr = addr & 0x1FF
         base      = word_addr * 4
         rdata  = int.from_bytes(self._data[base:base + 4], "little")
         rtag   = (self._tags[word_addr] >> 2) & 0xF
@@ -224,11 +224,10 @@ def cache_mem_runner():
     pdk_root  = Path("../gf180mcu")
 
     sources = [
-        pdk_root / "gf180mcuD/libs.ref/gf180mcu_fd_ip_sram/verilog/gf180mcu_fd_ip_sram__sram512x8m8wm1.v",
-        pdk_root / "gf180mcuD/libs.ref/gf180mcu_fd_ip_sram/verilog/gf180mcu_fd_ip_sram__sram128x8m8wm1.v",
-        pdk_root / "gf180mcuD/libs.ref/gf180mcu_fd_ip_sram/verilog/gf180mcu_fd_ip_sram__sram64x8m8wm1.v",
-        proj_path / "../src/mem_ctrl/mem128x32.sv",
-        proj_path / "../src/mem_ctrl/mem128x6.sv",
+        proj_path / "models/gf180_ocd_sram1024x8_model.sv",
+        proj_path / "models/gf180_ocd_sram512x8_model.sv",
+        proj_path / "../src/mem_ctrl/mem512x32.sv",
+        proj_path / "../src/mem_ctrl/mem512x6.sv",
         proj_path / "../src/mem_ctrl/cache_mem.sv",
     ]
 

@@ -88,9 +88,12 @@ async def thorough_mmio_test(dut):
     assert dut.flush_valid_o.value == 1, "Flush valid did not assert"
     # flush_addr_o must carry the target address the CPU wrote as data
     # (0x1234_5678), not the fixed 0x8000_0020 trigger address itself --
-    # otherwise every flush would always hit the same one cache line.
-    assert dut.flush_addr_o.value == 0x12345678, (
-        f"Flush addr should be the written target address, got {hex(int(dut.flush_addr_o.value))}"
+    # otherwise every flush would always hit the same one cache line. The
+    # handler word-indexes it (byte addr >> 2, same translation as pass_mem_addr
+    # for the word-indexed cache), so expect 0x1234_5678 >> 2 == 0x48D_159E.
+    assert dut.flush_addr_o.value == (0x12345678 >> 2), (
+        f"Flush addr should be the written target word index "
+        f"(0x{0x12345678 >> 2:x}), got {hex(int(dut.flush_addr_o.value))}"
     )
 
     # Pulse flush_ready to clear it
