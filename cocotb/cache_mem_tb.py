@@ -79,7 +79,7 @@ async def cache_access(dut, addr, wdata=0, wstate=0, wtag=0, wstrb=0):
 class CacheMemGolden:
     def __init__(self):
         self._data = bytearray(128 * 4)
-        self._tags = [0] * 128          # {wtag[1:0], wstate[1:0]}
+        self._tags = [0] * 128          # {wtag[3:0], wstate[1:0]}
 
     def write(self, addr, wdata, wstate, wtag, wstrb=0xF):
         word_addr = addr & 0x7F
@@ -87,13 +87,13 @@ class CacheMemGolden:
         for b in range(4):
             if wstrb & (1 << b):
                 self._data[base + b] = (wdata >> (b * 8)) & 0xFF
-        self._tags[word_addr] = ((wtag & 0x3) << 2) | (wstate & 0x3)
+        self._tags[word_addr] = ((wtag & 0xF) << 2) | (wstate & 0x3)
 
     def read(self, addr):
         word_addr = addr & 0x7F
         base      = word_addr * 4
         rdata  = int.from_bytes(self._data[base:base + 4], "little")
-        rtag   = (self._tags[word_addr] >> 2) & 0x3
+        rtag   = (self._tags[word_addr] >> 2) & 0xF
         rstate =  self._tags[word_addr]        & 0x3
         return rdata, rtag, rstate
 
@@ -115,7 +115,7 @@ async def cache_mem_write_read(dut):
         addr   = random.randint(0, 127)
         wdata  = random.randint(0, 0xFFFFFFFF)
         wstate = random.randint(0, 3)
-        wtag   = random.randint(0, 3)
+        wtag   = random.randint(0, 15)
         wstrb  = random.randint(1, 0xF)
 
         await cache_access(dut, addr, wdata, wstate, wtag, wstrb)
@@ -201,7 +201,7 @@ async def cache_mem_overwrite(dut):
     for _ in range(20):
         wdata  = random.randint(0, 0xFFFFFFFF)
         wstate = random.randint(0, 3)
-        wtag   = random.randint(0, 3)
+        wtag   = random.randint(0, 15)
         await cache_access(dut, addr, wdata, wstate, wtag, wstrb=0xF)
         golden.write(addr, wdata, wstate, wtag)
 
@@ -225,9 +225,10 @@ def cache_mem_runner():
 
     sources = [
         pdk_root / "gf180mcuD/libs.ref/gf180mcu_fd_ip_sram/verilog/gf180mcu_fd_ip_sram__sram512x8m8wm1.v",
+        pdk_root / "gf180mcuD/libs.ref/gf180mcu_fd_ip_sram/verilog/gf180mcu_fd_ip_sram__sram128x8m8wm1.v",
         pdk_root / "gf180mcuD/libs.ref/gf180mcu_fd_ip_sram/verilog/gf180mcu_fd_ip_sram__sram64x8m8wm1.v",
         proj_path / "../src/mem_ctrl/mem128x32.sv",
-        proj_path / "../src/mem_ctrl/mem128x4.sv",
+        proj_path / "../src/mem_ctrl/mem128x6.sv",
         proj_path / "../src/mem_ctrl/cache_mem.sv",
     ]
 

@@ -67,9 +67,10 @@ class SnoopEvent(IntEnum):
     BUS_UPGR: Another cache is upgrading from SHARED to MODIFIED
         - This cache must invalidate (no flush needed - data already shared)
     """
-    BUS_RD = 1     # Another cache issued BusRd (read miss)
-    BUS_RDX = 2    # Another cache issued BusRdX (write miss)
-    BUS_UPGR = 4   # Another cache issued BusUpgr (write hit in Shared)
+    # Values match the snoop-request metadata codes driven on snoop_dircmd_i.
+    BUS_RD = 9     # Another cache issued BusRd (read miss)  (SnoopBusRD)
+    BUS_RDX = 10   # Another cache issued BusRdX (write miss) (SnoopBusRDX)
+    BUS_UPGR = 11  # Another cache issued BusUpgr (write hit in Shared) (SnoopBusUPGR)
 
 
 class CoherenceCmd(IntEnum):
@@ -92,18 +93,18 @@ class CoherenceCmd(IntEnum):
 
     Note: Values are chosen to avoid conflicts (snoops start at 17)
     """
-    # Cache-to-Directory commands (values 1-5)
+    # Normalized 4-bit binary metadata codes (match the RTL end-to-end).
     NULL = 0
     BUS_RD = 1        # Read request (cache miss on read)
     BUS_RDX = 2       # Read-exclusive request (cache miss on write)
-    BUS_UPGR = 4      # Upgrade request (cache hit on write in SHARED state)
-    EVICT_CLEAN = 8   # Evict SHARED line (no data)
-    EVICT_DIRTY = 16   # Evict MODIFIED line (includes writeback data)
+    BUS_UPGR = 3      # Upgrade request (cache hit on write in SHARED state)
+    EVICT_CLEAN = 5   # Evict SHARED line (no data)
+    EVICT_DIRTY = 6   # Evict MODIFIED line (includes writeback data)
 
-    # Directory-to-Cache commands (values 17-19, offset to avoid conflicts)
-    SNOOP_BUS_RD = 17    # Snoop: another cache reading
-    SNOOP_BUS_RDX = 18   # Snoop: another cache writing
-    SNOOP_BUS_UPGR = 19  # Snoop: another cache upgrading
+    # Directory-to-Cache snoop commands.
+    SNOOP_BUS_RD = 9     # Snoop: another cache reading
+    SNOOP_BUS_RDX = 10   # Snoop: another cache writing
+    SNOOP_BUS_UPGR = 11  # Snoop: another cache upgrading
 
 
 # ============================================================================

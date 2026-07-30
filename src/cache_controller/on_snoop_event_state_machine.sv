@@ -5,7 +5,7 @@ module on_snoop_event_state_machine
 (
   // input interface
   input  logic [1:0]   current_state_i,
-  input  logic [2:0]   snoop_event_i,
+  input  logic [3:0]   snoop_event_i,
 
   // output interface     
   output logic [1:0] next_state_o,
@@ -19,10 +19,11 @@ module on_snoop_event_state_machine
     MODIFIED = 2'b10
   } msi_state;
 
-  typedef enum logic [2:0] {
-    BUS_RD   = 3'b1, 
-    BUS_RDX  = 3'b10,
-    BUS_UPGR = 3'b100  
+  // Normalized 4-bit binary command codes (snoop-request metadata values).
+  typedef enum logic [3:0] {
+    BUS_RD   = 4'd9,   // SnoopBusRD
+    BUS_RDX  = 4'd10,  // SnoopBusRDX
+    BUS_UPGR = 4'd11   // SnoopBusUPGR
   } snoop_event;
 
 

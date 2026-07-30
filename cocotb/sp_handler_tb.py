@@ -86,7 +86,13 @@ async def thorough_mmio_test(dut):
     await RisingEdge(dut.clk_i)
     await Timer(1, unit="ns")
     assert dut.flush_valid_o.value == 1, "Flush valid did not assert"
-    
+    # flush_addr_o must carry the target address the CPU wrote as data
+    # (0x1234_5678), not the fixed 0x8000_0020 trigger address itself --
+    # otherwise every flush would always hit the same one cache line.
+    assert dut.flush_addr_o.value == 0x12345678, (
+        f"Flush addr should be the written target address, got {hex(int(dut.flush_addr_o.value))}"
+    )
+
     # Pulse flush_ready to clear it
     dut.mem_valid.value = 0
     dut.mem_wstrb.value = 0
@@ -115,7 +121,9 @@ async def thorough_mmio_test(dut):
     await cpu_read(dut, 0x8000_0011)
     assert int(dut.mem_rdata.value) == 0, "GPIO input pin should not be set by CPU"
     dut.gpio_pins_i.value = 0x2
-    await RisingEdge(dut.clk_i)
+    # Allow the two-flop metastability synchronizer in mmio to settle before
+    # the value is observable on the CPU read datapath.
+    await ClockCycles(dut.clk_i, 3)
     await cpu_read(dut, 0x8000_0011)
     assert int(dut.mem_rdata.value) == 1, "GPIO input pin not successfully read"
 

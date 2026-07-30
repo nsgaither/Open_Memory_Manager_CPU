@@ -11,6 +11,12 @@ module chip_core #(
     
     input  wire 					  clk,        // clock
     input  wire 					  rst_n,      // reset (active low)
+
+    // Physically buffered scan/functional-mode controls. Separate branches
+    // prevent one pad-driven net from spanning every scan mux in the core.
+    input  wire  [3:0] debug_mode_i,
+    // One branch for request-state logic and one per receive shift word.
+    input  wire  [4:0] req_i_branches,
     
     input  wire  [NUM_BIDIR_PADS-1:0] bidir_in,   // Input value
     output logic [NUM_BIDIR_PADS-1:0] bidir_out,  // Output value
@@ -28,25 +34,16 @@ module chip_core #(
 
     // I/O pad indexes for the 0p5x0p5 48-bidir pinout.
     localparam DEBUG_ID          = 0;   // bidir[0]
+    localparam BOOT_DONE_ID      = 1;   // bidir[1]
     localparam REQ_I_ID          = 11;  // bidir[11]
     localparam REQ_O_ID          = 21;  // bidir[21]
     localparam TRAP_ID           = 22;  // bidir[22]
     localparam SERIAL_I_START_ID = 2;   // bidir[2]  through bidir[10]
     localparam SERIAL_O_START_ID = 12;  // bidir[12] through bidir[20]
     localparam GPIO_START_ID     = 23;  // bidir[23] through bidir[30]
-    localparam SCAN_MODE_ID      = 31;  // bidir[31]
-    localparam SCAN_ENABLE_ID    = 32;  // bidir[32]
-    localparam SCAN_IN_ID        = 33;  // bidir[33]
-    localparam SCAN_OUT_ID       = 34;  // bidir[34]
-
-    wire scan_mode;
-    wire scan_enable;
-    wire scan_in;
-    wire scan_out;
-
-    assign scan_mode   = bidir_in[SCAN_MODE_ID];
-    assign scan_enable = bidir_in[SCAN_ENABLE_ID];
-    assign scan_in     = bidir_in[SCAN_IN_ID];
+    localparam DEBUG_START_ID    = 23;  // DFT pins muxed with GPIO[7:0]
+    localparam DFT_PINS          = 8;
+    localparam DFT_CHAINS        = DFT_PINS / 2;
  
     wire clk_i;
     assign clk_i = clk;
@@ -60,13 +57,52 @@ module chip_core #(
     logic [MEM_INIT_COUNTER_WIDTH-1:0] mem_init_count;
     wire memory_ready;
     wire cores_en;
+    wire boot_done;
+    logic boot_done_meta, boot_done_sync;
+    wire [DFT_CHAINS-1:0] dft_scan_in;
+    wire [DFT_CHAINS-1:0] dft_scan_out;
+    wire scan_after_mem_init;
+    wire scan_after_sp_handler;
+    wire [1:0] cache_scan_out;
+    wire [1:0] interface_scan_out;
 
     assign memory_ready = (mem_init_count == MEM_INIT_COUNT_MAX);
-    assign cores_en = memory_ready;
+    assign cores_en = memory_ready && boot_done_sync;
+    assign boot_done = bidir_in[BOOT_DONE_ID];
+    assign dft_scan_in = bidir_in[DEBUG_START_ID +: DFT_CHAINS];
+    assign scan_after_mem_init = mem_init_count[MEM_INIT_COUNTER_WIDTH-1];
+
+    // Two-flop synchronizer for the asynchronous boot_done pad before it gates
+    // release of the CPU reset. rst_n is already reset-synchronized upstream in
+    // chip_top (reset_sync_ff -> rst_n_sync), so it is safe to use as the reset
+    // here. Excluded from scan (synchronizer hardening); resets to 0.
+    // (serial_i / req_i are left unsynchronized on purpose: the link clock is
+    // forwarded from the bottom chip, so those pins are already in the clk_i
+    // domain.)
+    always_ff @(posedge clk_i) begin
+        if (!rst_n) begin
+            boot_done_meta <= 1'b0;
+            boot_done_sync <= 1'b0;
+        end else begin
+            boot_done_meta <= boot_done;
+            boot_done_sync <= boot_done_meta;
+        end
+    end
+
+    // Four independent chains use the lower half of the shared GPIO/DFT pad
+    // range as serial inputs and the upper half as serial outputs.
+    assign dft_scan_out[0] = interface_scan_out[0];
+    assign dft_scan_out[1] = cache_scan_out[0];
+    assign dft_scan_out[2] = cache_scan_out[1];
+    assign dft_scan_out[3] = interface_scan_out[1];
 
     always_ff @(posedge clk_i) begin
         if (!rst_n) begin
             mem_init_count <= '0;
+        end else if (debug_mode_i[0]) begin
+            mem_init_count <= {
+                mem_init_count[MEM_INIT_COUNTER_WIDTH-2:0], dft_scan_in[0]
+            };
         end else if (!memory_ready) begin
             mem_init_count <= mem_init_count + 1'b1;
         end
@@ -114,7 +150,7 @@ module chip_core #(
 
         .TWO_STAGE_SHIFT      (1),
         .BARREL_SHIFTER       (0),
-        .TWO_CYCLE_COMPARE    (0),
+        .TWO_CYCLE_COMPARE    (1),
         .TWO_CYCLE_ALU        (0),
 
         .COMPRESSED_ISA       (0),
@@ -204,6 +240,9 @@ module chip_core #(
     sp_addr_handler u_sp_addr_handler (
         .clk_i           (clk_i),
         .rst_ni          (rst_n),
+        .debug_mode_i    (debug_mode_i[1]),
+        .scan_in_i       (scan_after_mem_init),
+        .scan_out_o      (scan_after_sp_handler),
 
         // Interface from CPU (native picorv32)
         .mem_valid       (mem_valid),
@@ -243,22 +282,25 @@ module chip_core #(
     wire        cache_valid;
     wire [31:0] cache_addr;
     wire [31:0] cache_data;
-    wire [ 8:0] cache_cmd;
+    wire [ 3:0] cache_cmd;
     wire        cache_ready;
 
     wire        bus_valid;
     wire [31:0] bus_data;
-    wire [ 2:0] bus_dircmd;
+    wire [ 3:0] bus_dircmd;
     wire        bus_ready;
 
     wire        snoop_valid;
     wire [31:0] snoop_data;
-    wire [ 2:0] snoop_dircmd;
+    wire [ 3:0] snoop_dircmd;
     wire        snoop_ready;
 
     cache_controller u_cache_controller (
         .clk_i                 (clk_i),
         .rst_ni                (rst_n),
+        .debug_mode_i          (debug_mode_i[2]),
+        .scan_in_i             ({dft_scan_in[2], dft_scan_in[1]}),
+        .scan_out_o            (cache_scan_out),
 
         .mem_valid_i           (pass_mem_valid),
         .mem_instr_i           (mem_instr),
@@ -298,7 +340,6 @@ module chip_core #(
     wire                 rbusy;
     wire                 req_o;
     wire [NUM_TPINS-1:0] serial_o;
-    logic                 req_i;
     logic [NUM_RPINS-1:0] serial_i;
 
     cache_interface #(
@@ -307,6 +348,9 @@ module chip_core #(
     ) u_cache_interface (
         .clk_i          (clk_i),
         .rst_ni         (rst_n),
+        .debug_mode_i   (debug_mode_i[3]),
+        .scan_in_i      ({dft_scan_in[3], scan_after_sp_handler}),
+        .scan_out_o     (interface_scan_out),
 
         // UPSTREAM --------------------------------------
         
@@ -338,60 +382,10 @@ module chip_core #(
         // DOWNSTREAM ------------------------------------
         
         // wrapped serializer IO
-        .req_i          (req_i),
+        .req_i_branches (req_i_branches),
         .serial_i       (serial_i),
         .req_o          (req_o),
         .serial_o       (serial_o)
-    );
-
-    localparam int SCAN_CHAIN_WIDTH = 128;
-    logic [SCAN_CHAIN_WIDTH-1:0] scan_capture_data;
-    wire  [SCAN_CHAIN_WIDTH-1:0] scan_data;
-
-    always_comb begin : scan_capture_mux
-        scan_capture_data = '0;
-
-        scan_capture_data[5]       = memory_ready;
-        scan_capture_data[6]       = cores_en;
-        scan_capture_data[7]       = cpu_resetn;
-        scan_capture_data[8]       = trap;
-        scan_capture_data[9]       = mem_valid;
-        scan_capture_data[10]      = mem_instr;
-        scan_capture_data[11]      = mem_ready;
-        scan_capture_data[43:12]   = mem_addr;
-        scan_capture_data[75:44]   = mem_wdata;
-        scan_capture_data[79:76]   = mem_wstrb;
-        scan_capture_data[80]      = pass_mem_valid;
-        scan_capture_data[81]      = pass_mem_ready;
-        scan_capture_data[82]      = flush_valid;
-        scan_capture_data[83]      = flush_ready;
-        scan_capture_data[84]      = cache_valid;
-        scan_capture_data[85]      = cache_ready;
-        scan_capture_data[86]      = bus_valid;
-        scan_capture_data[87]      = bus_ready;
-        scan_capture_data[88]      = snoop_valid;
-        scan_capture_data[89]      = snoop_ready;
-        scan_capture_data[90]      = rbusy;
-        scan_capture_data[91]      = req_i;
-        scan_capture_data[92]      = req_o;
-        scan_capture_data[101:93]  = serial_i;
-        scan_capture_data[110:102] = serial_o;
-        scan_capture_data[118:111] = gpio_pins_i;
-        scan_capture_data[126:119] = gpio_pins_o;
-        scan_capture_data[127]     = scan_mode;
-    end
-
-    scan_chain #(
-        .WIDTH (SCAN_CHAIN_WIDTH)
-    ) u_dft_scan_chain (
-        .clk_i         (clk_i),
-        .rst_ni        (rst_n),
-        .scan_mode_i   (scan_mode),
-        .scan_enable_i (scan_enable),
-        .scan_in_i     (scan_in),
-        .capture_i     (scan_capture_data),
-        .scan_out_o    (scan_out),
-        .scan_data_o   (scan_data)
     );
 
     // bidirectional pad control
@@ -404,20 +398,18 @@ module chip_core #(
         bidir_pd = '0;
 
         // IO control
-        bidir_oe[GPIO_START_ID +: 8] = gpio_dir;
+        if (debug_mode_i[0]) begin
+            bidir_oe[DEBUG_START_ID +: DFT_CHAINS] = '0;
+            bidir_oe[DEBUG_START_ID + DFT_CHAINS +: DFT_CHAINS] = '1;
+        end else begin
+            bidir_oe[GPIO_START_ID +: 8] = gpio_dir;
+        end
         bidir_oe[DEBUG_ID] = 1'b0;                     // debug pin is input only
         bidir_oe[TRAP_ID] = 1'b1;                      // trap pin is output only
         bidir_oe[REQ_I_ID] = 1'b0;                     // req_i is input only
         bidir_oe[REQ_O_ID] = 1'b1;                     // req_o is output only
         bidir_oe[SERIAL_I_START_ID +: NUM_RPINS] = '0; // serial_i is input only
         bidir_oe[SERIAL_O_START_ID +: NUM_TPINS] = '1; // serial_o is output only
-        bidir_oe[SCAN_MODE_ID] = 1'b0;                  // scan_mode is input only
-        bidir_oe[SCAN_ENABLE_ID] = 1'b0;                // scan_enable is input only
-        bidir_oe[SCAN_IN_ID] = 1'b0;                    // scan_in is input only
-        bidir_oe[SCAN_OUT_ID] = scan_mode;              // scan_out drives only in scan mode
-        bidir_pd[SCAN_MODE_ID] = 1'b1;                  // default to functional mode if undriven
-        bidir_pd[SCAN_ENABLE_ID] = 1'b1;
-        bidir_pd[SCAN_IN_ID] = 1'b1;
         bidir_ie = ~bidir_oe;
     end
 
@@ -432,15 +424,19 @@ module chip_core #(
         bidir_out[TRAP_ID] = trap;
 
         // serial
-        req_i = bidir_data_i[REQ_I_ID];
         serial_i = bidir_data_i[SERIAL_I_START_ID +: NUM_RPINS];
         bidir_out[REQ_O_ID] = req_o;
         bidir_out[SERIAL_O_START_ID +: NUM_TPINS] = serial_o;
-        bidir_out[SCAN_OUT_ID] = scan_out;
 
         // GPIO
         bidir_out[GPIO_START_ID +: 8] = gpio_pins_o;
         gpio_pins_i = bidir_data_i[GPIO_START_ID +: 8];
+
+        // In debug mode, GPIO[3:0] are scan inputs and GPIO[7:4] are the
+        // corresponding scan outputs.
+        if (debug_mode_i[0]) begin
+            bidir_out[DEBUG_START_ID + DFT_CHAINS +: DFT_CHAINS] = dft_scan_out;
+        end
     end
 
 endmodule

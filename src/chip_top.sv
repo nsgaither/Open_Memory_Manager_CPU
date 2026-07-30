@@ -2,14 +2,44 @@
 // SPDX-License-Identifier: Apache-2.0
 
 `default_nettype none
-`timescale 1ns/1ps
 
+`include "generated_defines.svh"
 `include "slot_defines.svh"
 
+`ifdef SRAM_gf180mcu_ocd_ip_sram
+`define gf180mcu_xxx_ip_sram__sram512x8m8wm1 gf180mcu_ocd_ip_sram__sram512x8m8wm1
+`else
+`define gf180mcu_xxx_ip_sram__sram512x8m8wm1 gf180mcu_fd_ip_sram__sram512x8m8wm1
+`endif
+
+`ifdef PAD_gf180mcu_ocd_io
+`define gf180mcu_xxx_io__vdd gf180mcu_ocd_io__vdd
+`define gf180mcu_xxx_io__vss gf180mcu_ocd_io__vss
+`define gf180mcu_xxx_io__dvdd gf180mcu_ocd_io__dvdd
+`define gf180mcu_xxx_io__dvss gf180mcu_ocd_io__dvss
+`define gf180mcu_xxx_io__in_s gf180mcu_ocd_io__in_s
+`define gf180mcu_xxx_io__in_c gf180mcu_ocd_io__in_c
+`define gf180mcu_xxx_io__bi_24t gf180mcu_ocd_io__bi_24t
+`define gf180mcu_xxx_io__asig_5p0 gf180mcu_ocd_io__asig_5p0
+`else
+`define gf180mcu_xxx_io__vdd gf180mcu_fd_io__dvdd
+`define gf180mcu_xxx_io__vss gf180mcu_fd_io__dvss
+`define gf180mcu_xxx_io__dvdd gf180mcu_fd_io__dvdd
+`define gf180mcu_xxx_io__dvss gf180mcu_fd_io__dvss
+`define gf180mcu_xxx_io__in_s gf180mcu_fd_io__in_s
+`define gf180mcu_xxx_io__in_c gf180mcu_fd_io__in_c
+`define gf180mcu_xxx_io__bi_24t gf180mcu_fd_io__bi_24t
+`define gf180mcu_xxx_io__asig_5p0 gf180mcu_fd_io__asig_5p0
+`endif
+
 module chip_top #(
-    // Power/ground pads for core and I/O
+    // Power/ground pads for I/O
     parameter NUM_DVDD_PADS = `NUM_DVDD_PADS,
     parameter NUM_DVSS_PADS = `NUM_DVSS_PADS,
+
+    // Power/ground pads for core
+    // parameter NUM_VDD_PADS = `NUM_VDD_PADS,
+    // parameter NUM_VSS_PADS = `NUM_VSS_PADS,
 
     // Signal pads
     parameter NUM_BIDIR_PADS = `NUM_BIDIR_PADS
@@ -17,17 +47,45 @@ module chip_top #(
     `ifdef USE_POWER_PINS
     inout  wire VDD,
     inout  wire VSS,
+    inout  wire DVDD,
+    inout  wire DVSS,
     `endif
 
     inout  wire clk_PAD,
     inout  wire rst_n_PAD,
-
+    
     inout  wire [NUM_BIDIR_PADS-1:0] bidir_PAD
 );
 
     wire clk_PAD2CORE;
-    wire rst_n_PAD2CORE; /* verilator lint_off SYNCASYNCNET */
-    
+    wire rst_n_PAD2CORE;
+
+    // Buffered pad inputs. Each signal I/O pad's Y pin has a Liberty
+    // max_fanout of 1, so every pad output that drives more than one core
+    // load is re-driven here by a strong (* keep *) root buffer (mirrors the
+    // debug_mode / req_i distribution roots). This keeps pad fanout at one and
+    // moves the real fanout onto standard-cell buffers the tools can size.
+    wire clk_core;
+    wire rst_n_core;
+    localparam int GPIO_START_ID = 23; // bidir[23]..bidir[30] (GPIO / DFT pins)
+    localparam int GPIO_END_ID   = 30;
+    wire [NUM_BIDIR_PADS-1:0] bidir_in_core;
+
+    // Assert reset immediately, but release it only after two clock edges.
+    // Raw pad reset is confined to these synchronizer flops so every reset
+    // consumer in the core observes deassertion in the same clock domain.
+    (* async_reg = "true" *) logic [1:0] reset_sync_ff;
+    wire rst_n_sync;
+
+    always_ff @(posedge clk_core or negedge rst_n_core) begin
+        if (!rst_n_core)
+            reset_sync_ff <= 2'b00;
+        else
+            reset_sync_ff <= {reset_sync_ff[0], 1'b1};
+    end
+
+    assign rst_n_sync = reset_sync_ff[1];
+
     wire [NUM_BIDIR_PADS-1:0] bidir_PAD2CORE;
     wire [NUM_BIDIR_PADS-1:0] bidir_CORE2PAD;
     wire [NUM_BIDIR_PADS-1:0] bidir_CORE2PAD_OE;
@@ -37,38 +95,87 @@ module chip_top #(
     wire [NUM_BIDIR_PADS-1:0] bidir_CORE2PAD_PU;
     wire [NUM_BIDIR_PADS-1:0] bidir_CORE2PAD_PD;
 
+    // debug_mode is a scan/functional-mode control with loads spread across
+    // the core. Do not drive those loads directly from the I/O cell: the
+    // pad's Y pin has a very small Liberty fanout limit, which otherwise makes
+    // post-placement design repair build a pathological buffer tree. A strong
+    // root followed by one branch per major core region keeps the pad fanout
+    // at one and gives the placer useful physical partition points.
+    wire       debug_mode_root;
+    wire [3:0] debug_mode_branches;
+
+    // req_i drives the receive state machine and four nine-bit shift-register
+    // words. Keep those physical regions off the pad net: the pad drives one
+    // strong root, and each consumer group gets its own strong branch.
+    localparam int REQ_I_ID = 11;
+    localparam int REQ_I_BRANCHES = 5;
+    wire req_i_root;
+    wire [REQ_I_BRANCHES-1:0] req_i_branches;
+
+    // In the foundry pads, the I/O and
+    // core voltage domains are shorted
+    `ifdef USE_POWER_PINS
+    `ifdef PAD_gf180mcu_fd_io
+    assign VDD = DVDD;
+    assign VSS = DVSS;
+    `endif
+    `endif
+
     // Power/ground pad instances
     generate
     for (genvar i=0; i<NUM_DVDD_PADS; i++) begin : dvdd_pads
         (* keep *)
-        gf180mcu_ws_io__dvdd pad (
+        `gf180mcu_xxx_io__dvdd pad (
             `ifdef USE_POWER_PINS
-            .DVDD   (VDD),
-            .DVSS   (VSS),
+            .DVDD   (DVDD),
+            .DVSS   (DVSS),
+            .VDD    (VDD),
             .VSS    (VSS)
             `endif
         );
     end
-    
     for (genvar i=0; i<NUM_DVSS_PADS; i++) begin : dvss_pads
         (* keep *)
-        gf180mcu_ws_io__dvss pad (
+        `gf180mcu_xxx_io__dvss pad (
             `ifdef USE_POWER_PINS
-            .DVDD   (VDD),
-            .DVSS   (VSS),
-            .VDD    (VDD)
+            .DVDD   (DVDD),
+            .DVSS   (DVSS),
+            .VDD    (VDD),
+            .VSS    (VSS)
             `endif
         );
     end
+    // for (genvar i=0; i<NUM_VDD_PADS; i++) begin : vdd_pads
+    //     (* keep *)
+    //     `gf180mcu_xxx_io__vdd pad (
+    //         `ifdef USE_POWER_PINS
+    //         .DVDD   (DVDD),
+    //         .DVSS   (DVSS),
+    //         .VDD    (VDD),
+    //         .VSS    (VSS)
+    //         `endif
+    //     );
+    // end
+    // for (genvar i=0; i<NUM_VSS_PADS; i++) begin : vss_pads
+    //     (* keep *)
+    //     `gf180mcu_xxx_io__vss pad (
+    //         `ifdef USE_POWER_PINS
+    //         .DVDD   (DVDD),
+    //         .DVSS   (DVSS),
+    //         .VDD    (VDD),
+    //         .VSS    (VSS)
+    //         `endif
+    //     );
+    // end
     endgenerate
 
     // Signal IO pad instances
 
     // Schmitt trigger
-    gf180mcu_fd_io__in_s clk_pad (
+    `gf180mcu_xxx_io__in_s clk_pad (
         `ifdef USE_POWER_PINS
-        .DVDD   (VDD),
-        .DVSS   (VSS),
+        .DVDD   (DVDD),
+        .DVSS   (DVSS),
         .VDD    (VDD),
         .VSS    (VSS),
         `endif
@@ -81,10 +188,10 @@ module chip_top #(
     );
     
     // Normal input
-    gf180mcu_fd_io__in_c rst_n_pad (
+    `gf180mcu_xxx_io__in_c rst_n_pad (
         `ifdef USE_POWER_PINS
-        .DVDD   (VDD),
-        .DVSS   (VSS),
+        .DVDD   (DVDD),
+        .DVSS   (DVSS),
         .VDD    (VDD),
         .VSS    (VSS),
         `endif
@@ -96,13 +203,14 @@ module chip_top #(
         .PD     (1'b0)
     );
 
+
     generate
     for (genvar i=0; i<NUM_BIDIR_PADS; i++) begin : bidir
         (* keep *)
-        gf180mcu_fd_io__bi_24t pad (
+        `gf180mcu_xxx_io__bi_24t pad (
             `ifdef USE_POWER_PINS
-            .DVDD   (VDD),
-            .DVSS   (VSS),
+            .DVDD   (DVDD),
+            .DVSS   (DVSS),
             .VDD    (VDD),
             .VSS    (VSS),
             `endif
@@ -122,6 +230,106 @@ module chip_top #(
     end
     endgenerate
 
+    (* keep *) gf180mcu_fd_sc_mcu7t5v0__buf_16 req_i_root_buf (
+        `ifdef USE_POWER_PINS
+        .VDD (VDD),
+        .VSS (VSS),
+        .VNW (VDD),
+        .VPW (VSS),
+        `endif
+        .I   (bidir_PAD2CORE[REQ_I_ID]),
+        .Z   (req_i_root)
+    );
+
+    generate
+    for (genvar i=0; i<REQ_I_BRANCHES; i++) begin : req_i_tree
+        (* keep *) gf180mcu_fd_sc_mcu7t5v0__buf_16 branch_buf (
+            `ifdef USE_POWER_PINS
+            .VDD (VDD),
+            .VSS (VSS),
+            .VNW (VDD),
+            .VPW (VSS),
+            `endif
+            .I   (req_i_root),
+            .Z   (req_i_branches[i])
+        );
+    end
+    endgenerate
+
+    (* keep *) gf180mcu_fd_sc_mcu7t5v0__buf_16 debug_mode_root_buf (
+        `ifdef USE_POWER_PINS
+        .VDD (VDD),
+        .VSS (VSS),
+        .VNW (VDD),
+        .VPW (VSS),
+        `endif
+        .I   (bidir_PAD2CORE[0]),
+        .Z   (debug_mode_root)
+    );
+
+    generate
+    for (genvar i=0; i<4; i++) begin : debug_mode_tree
+        (* keep *) gf180mcu_fd_sc_mcu7t5v0__buf_16 branch_buf (
+            `ifdef USE_POWER_PINS
+            .VDD (VDD),
+            .VSS (VSS),
+            .VNW (VDD),
+            .VPW (VSS),
+            `endif
+            .I   (debug_mode_root),
+            .Z   (debug_mode_branches[i])
+        );
+    end
+    endgenerate
+
+    // Clock pad fanout root: pad drives one clock buffer; CTS builds the tree
+    // from clk_core (both the reset synchronizer and the core hang off it).
+    (* keep *) gf180mcu_fd_sc_mcu7t5v0__clkbuf_16 clk_root_buf (
+        `ifdef USE_POWER_PINS
+        .VDD (VDD),
+        .VSS (VSS),
+        .VNW (VDD),
+        .VPW (VSS),
+        `endif
+        .I   (clk_PAD2CORE),
+        .Z   (clk_core)
+    );
+
+    // Reset pad fanout root: pad drives one buffer feeding the sync flops.
+    (* keep *) gf180mcu_fd_sc_mcu7t5v0__buf_16 rst_n_root_buf (
+        `ifdef USE_POWER_PINS
+        .VDD (VDD),
+        .VSS (VSS),
+        .VNW (VDD),
+        .VPW (VSS),
+        `endif
+        .I   (rst_n_PAD2CORE),
+        .Z   (rst_n_core)
+    );
+
+    // GPIO / DFT input pads: re-drive each through a root buffer so the pad Y
+    // stays at fanout one, then feed the buffered bus to the core. Non-GPIO
+    // bits pass through unchanged (their pads are single-load or already
+    // rooted via debug_mode / req_i above).
+    generate
+    for (genvar i=0; i<NUM_BIDIR_PADS; i++) begin : bidir_in_root
+        if (i >= GPIO_START_ID && i <= GPIO_END_ID) begin : gpio_buffered
+            (* keep *) gf180mcu_fd_sc_mcu7t5v0__buf_16 gpio_in_buf (
+                `ifdef USE_POWER_PINS
+                .VDD (VDD),
+                .VSS (VSS),
+                .VNW (VDD),
+                .VPW (VSS),
+                `endif
+                .I   (bidir_PAD2CORE[i]),
+                .Z   (bidir_in_core[i])
+            );
+        end else begin : passthrough
+            assign bidir_in_core[i] = bidir_PAD2CORE[i];
+        end
+    end
+    endgenerate
+
     // Core design
 
     chip_core #(
@@ -131,11 +339,14 @@ module chip_top #(
         .VDD        (VDD),
         .VSS        (VSS),
         `endif
-    
-        .clk        (clk_PAD2CORE),
-        .rst_n      (rst_n_PAD2CORE),
-    
-        .bidir_in   (bidir_PAD2CORE),
+
+        .clk        (clk_core),
+        .rst_n      (rst_n_sync),
+
+        .debug_mode_i (debug_mode_branches),
+        .req_i_branches (req_i_branches),
+
+        .bidir_in   (bidir_in_core),
         .bidir_out  (bidir_CORE2PAD),
         .bidir_oe   (bidir_CORE2PAD_OE),
         .bidir_cs   (bidir_CORE2PAD_CS),
@@ -145,13 +356,14 @@ module chip_top #(
         .bidir_pd   (bidir_CORE2PAD_PD)
     );
     
-    // Chip ID - do not remove, necessary for tapeout
-    (* keep *)
-    gf180mcu_ws_ip__id chip_id ();
+    // Do not remove, necessary for tapeout
+    (* keep *) gf180mcu_ws_ip__qrcode_id qrcode_id ();
+    (* keep *) gf180mcu_ws_ip__shuttle_id shuttle_id ();
+    (* keep *) gf180mcu_ws_ip__project_id project_id ();
+    (* keep *) gf180mcu_ws_ip__marker marker ();
     
-    // wafer.space logo - can be removed
-    (* keep *)
-    gf180mcu_ws_ip__logo wafer_space_logo ();
+    // wafer.space logo - can be removed if desired
+    (* keep *) gf180mcu_ws_ip__logo wafer_space_logo ();
 
 endmodule
 

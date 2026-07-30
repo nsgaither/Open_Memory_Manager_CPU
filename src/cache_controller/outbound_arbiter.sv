@@ -5,25 +5,30 @@ module outbound_arbiter (
     input  logic        clk_i,
     input  logic        rst_ni,
 
+    // DFT scan interface. debug_mode_i is the scan/functional mux select.
+    input  logic        debug_mode_i,
+    input  logic        scan_in_i,
+    output logic        scan_out_o,
+
     // ---------- Master port 0 ----------
     input  logic        m0_valid_i,
     input  logic [31:0] m0_addr_i,
     input  logic [31:0] m0_data_i,
-    input  logic [8:0]  m0_cmd_i,
+    input  logic [3:0]  m0_cmd_i,
     output logic        m0_ready_o,
 
     // ---------- Master port 1 ----------
     input  logic        m1_valid_i,
     input  logic [31:0] m1_addr_i,
     input  logic [31:0] m1_data_i,
-    input  logic [8:0]  m1_cmd_i,
+    input  logic [3:0]  m1_cmd_i,
     output logic        m1_ready_o,
 
     // ---------- Cache slave port ----------
     output logic        cache_valid_o,
     output logic [31:0] cache_addr_o,
     output logic [31:0] cache_data_o,
-    output logic [8:0]  cache_cmd_o,
+    output logic [3:0]  cache_cmd_o,
     input  logic        cache_ready_i
 );
 
@@ -44,7 +49,14 @@ module outbound_arbiter (
     logic        cache_valid_q, cache_valid_d;
     logic [31:0] cache_addr_q,  cache_addr_d;
     logic [31:0] cache_data_q,  cache_data_d;
-    logic [8:0]  cache_cmd_q,   cache_cmd_d;
+    logic [3:0]  cache_cmd_q,   cache_cmd_d;
+
+    logic [71:0] scan_state;
+    assign scan_state = {
+        cache_cmd_q, cache_data_q, cache_addr_q,
+        cache_valid_q, rr_q, state_q
+    };
+    assign scan_out_o = scan_state[71];
 
     // ------------------------------------------------------------
     // Outputs
@@ -79,6 +91,12 @@ module outbound_arbiter (
             cache_addr_q  <= '0;
             cache_data_q  <= '0;
             cache_cmd_q   <= '0;
+        end
+        else if (debug_mode_i) begin
+            {
+                cache_cmd_q, cache_data_q, cache_addr_q,
+                cache_valid_q, rr_q, state_q
+            } <= {scan_state[70:0], scan_in_i};
         end
         else begin
             state_q       <= state_d;

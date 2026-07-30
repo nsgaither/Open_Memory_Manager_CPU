@@ -7,6 +7,7 @@ VERILOG_DEFINES: ["SLOT_0P5X0P5"]
 
 # Specify the pad instances for the padring
 PAD_SOUTH: [
+
     clk_pad,
     rst_n_pad,
 
@@ -30,6 +31,10 @@ PAD_EAST: [
     "bidir\\[9\\].pad",
     "bidir\\[10\\].pad",
     "bidir\\[11\\].pad",
+
+    "dvss_pads\\[1\\].pad",
+    "dvdd_pads\\[1\\].pad",
+
     "bidir\\[12\\].pad",
     "bidir\\[13\\].pad",
     "bidir\\[14\\].pad",
@@ -39,20 +44,18 @@ PAD_EAST: [
     "bidir\\[18\\].pad",
     "bidir\\[19\\].pad",
     "bidir\\[20\\].pad",
-    "bidir\\[21\\].pad",
-            
-            
-    "dvss_pads\\[1\\].pad",
-    "dvdd_pads\\[1\\].pad"
+    "bidir\\[21\\].pad"
+
 ]
 
 PAD_NORTH: [
+
     "bidir\\[22\\].pad",
-    "bidir\\[23\\].pad",
 
-    "dvss_pads\\[2\\].pad",
     "dvdd_pads\\[2\\].pad",
+    "dvss_pads\\[2\\].pad",
 
+    "bidir\\[23\\].pad",
     "bidir\\[24\\].pad",
     "bidir\\[25\\].pad",
     "bidir\\[26\\].pad",
@@ -61,12 +64,10 @@ PAD_NORTH: [
     "bidir\\[29\\].pad",
     "bidir\\[30\\].pad"
 
-
 ]
 
 
 PAD_WEST: [
-
 
     "bidir\\[31\\].pad",
     "bidir\\[32\\].pad",
@@ -85,4 +86,5 @@ PAD_WEST: [
     "bidir\\[45\\].pad",
     "bidir\\[46\\].pad",    
     "bidir\\[47\\].pad"
+
 ]

@@ -11,6 +11,11 @@ module tserializer #(
     input  logic                   clk_i,    
     input  logic                   rst_ni, 
 
+    // DFT scan interface. debug_mode_i is the scan/functional mux select.
+    input  logic                   debug_mode_i,
+    input  logic                   scan_in_i,
+    output logic                   scan_out_o,
+
     // data interface
     input  logic                   valid_i, 
     input  logic [int'($ceil(real'(MAX_MSG_LEN) / NUM_PINS) * NUM_PINS) - 1:0] data_in,
@@ -19,7 +24,7 @@ module tserializer #(
 
     // serial interface
     output logic                   req_o,
-    output logic [NUM_PINS-1:0]    serial_o 
+    output logic [NUM_PINS-1:0]    serial_o
 );  
 
     // parameters
@@ -41,10 +46,15 @@ module tserializer #(
     } state;
 
     state current_state, next_state;
+    wire scan_after_state;
+
+    assign scan_after_state = current_state;
 
     always_ff @( posedge clk_i ) begin : state_reg
         if (!rst_ni)
             current_state <= IDLE;
+        else if (debug_mode_i)
+            current_state <= state'(scan_in_i);
         else
             current_state <= next_state;
     end
@@ -60,8 +70,13 @@ module tserializer #(
 
     // message length
     logic [depth_cnt_width-1:0] curr_msg_len;
+    wire scan_after_msg_len;
+    assign scan_after_msg_len = curr_msg_len[depth_cnt_width-1];
+
     always_ff @( posedge clk_i ) begin : msg_length_reg
         if (!rst_ni) curr_msg_len <= '0;
+        else if (debug_mode_i)
+            curr_msg_len <= (curr_msg_len << 1) | depth_cnt_width'(scan_after_state);
         else if (current_state != SEND) begin
             case (msg_type)
                 2'b00: curr_msg_len <= type0_depth;
@@ -75,10 +90,14 @@ module tserializer #(
 
     // message counter
     logic [depth_cnt_width-1:0] count;
+    wire scan_after_count;
+    assign scan_after_count = count[depth_cnt_width-1];
 
     always_ff @( posedge clk_i ) begin : msg_cntr
         if (!rst_ni) begin
             count <= '0;
+        end else if (debug_mode_i) begin
+            count <= (count << 1) | depth_cnt_width'(scan_after_msg_len);
         end else if (current_state != SEND) begin
             count <= '0;
         end else begin
@@ -90,11 +109,19 @@ module tserializer #(
 
     // shift reg
     logic [shift_depth-1:0][shift_width-1:0] shift_arr;
+    logic [shift_depth*shift_width-1:0] scan_shift_state;
+    assign scan_shift_state = shift_arr;
+    assign scan_out_o = shift_arr[shift_depth-1][shift_width-1];
+
     always_ff @( posedge clk_i ) begin : shifter
         if (!rst_ni) begin
             for (int i = 0; i < shift_depth; i++) begin : rst_shift
                 shift_arr[i] <= '0;
             end
+        end else if (debug_mode_i) begin
+            shift_arr <= {
+                scan_shift_state[shift_depth*shift_width-2:0], scan_after_count
+            };
         end else if (current_state == SEND) begin
             for (int i = 1; i < shift_depth; i++) begin : shift
                 shift_arr[i] <= shift_arr[i-1];
@@ -110,6 +137,5 @@ module tserializer #(
     assign serial_o = shift_arr[curr_msg_len-1];
     assign req_o = (current_state == SEND);
     assign ready_o = (current_state != SEND);
-
 
 endmodule

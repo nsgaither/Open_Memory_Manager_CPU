@@ -45,15 +45,16 @@ The core is a **PicoRV32** CPU with multiply/divide (RV32IM), backed by a custom
 | **cache_controller** | Stub for future coherent cache with directory-based coherence and snoop interface |
 | **chip_id / logo** | Hard macros for wafer.space die marking (QR code and logo GDS) |
 
+## Dependencies
+
+Too manage all dependencies, the project template includes a Nix shell with all the required tools.
+Install Nix and LibreLane by following the Nix-based installation instructions: https://librelane.readthedocs.io/en/latest/installation/nix_installation/index.html
+To activate the shell, simply run `nix-shell` in the root directory of this repository. The subsequent steps assume that you are in the Nix shell of the project template.
+
 ## Prerequisites
 
-A custom fork of the [gf180mcuD PDK](https://github.com/wafer-space/gf180mcu) is used:
-
-```
-make clone-pdk
-```
-
-Install LibreLane via Nix: https://librelane.readthedocs.io/en/latest/installation/nix_installation/index.html
+The project template uses the open_pdks gf180mcuD variant of the PDK.
+To clone the latest PDK version via [Ciel](https://github.com/fossi-foundation/ciel), run `make clone-pdk`.
 
 ## Usage
 
@@ -123,6 +124,10 @@ All RTL sources are in `src/`:
 - `mem_ctrl/mem128x32.sv` — Main memory controller (512x8 SRAM)
 - `mem_ctrl/mem128x4.sv` — Tag SRAM controller (64x8 SRAM)
 - `slot_defines.svh` — Pad counts per slot size
+
+## Precheck
+
+To check whether your design is suitable for manufacturing, run the [gf180mcu-precheck](https://github.com/wafer-space/gf180mcu-precheck) with your layout.
 
 ## License
 
